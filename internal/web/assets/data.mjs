@@ -4,16 +4,36 @@ export function createData({ demo = false, storage, fetcher = fetch,
   isOnline = () => globalThis.navigator?.onLine !== false, timeoutMs = 8000,
 } = {}) {
   const cacheKey = "mp.schedule-cache.v1";
-  async function request(path, params = {}) {
+  const pending = new Map();
+  const canonical = url => {
+    const [path, query] = url.split("?");
+    const params = new URLSearchParams(query);
+    params.sort();
+    return `${path}?${params}`;
+  };
+  function request(path, params = {}) {
     if (demo) return demoRequest(path, params);
     const url = `/api${path}?${new URLSearchParams(params)}`;
-    let cache = {};
+    const key = canonical(url);
+    // Share only an unfinished request. A later refresh must reach the server.
+    if (!pending.has(key)) {
+      const task = fetchRequest(url, key).finally(() => pending.delete(key));
+      pending.set(key, task);
+    }
+    return pending.get(key);
+  }
+  function readCache() {
     try {
-      cache = JSON.parse(storage?.getItem(cacheKey) || "{}") || {};
-    } catch {}
+      const value = JSON.parse(storage?.getItem(cacheKey) || "{}");
+      return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    } catch { return {}; }
+  }
+  async function fetchRequest(url, key) {
     const cached = () => {
-      try { cache = JSON.parse(storage?.getItem(cacheKey) || "{}") || {}; } catch {}
-      return cache[url]?.value ? { ...cache[url].value, offline: true, stale: true, cached_at: cache[url].saved } : null;
+      const cache = readCache();
+      // Existing installations store URLs in the caller's parameter order.
+      const entry = cache[url] || Object.entries(cache).find(([savedURL]) => canonical(savedURL) === key)?.[1];
+      return entry?.value ? { ...entry.value, offline: true, stale: true, cached_at: entry.saved } : null;
     };
     if (!isOnline()) {
       const saved = cached();
@@ -50,10 +70,7 @@ export function createData({ demo = false, storage, fetcher = fetch,
       const value = await Promise.race([network, timeout]);
       // Parallel week/subgroup requests must merge with the latest cache,
       // not overwrite each other with a snapshot from before their fetch.
-      let latest = {};
-      try {
-        latest = JSON.parse(storage?.getItem(cacheKey) || "{}") || {};
-      } catch {}
+      const latest = readCache();
       const keep = [
         [url, { value, saved: new Date().toISOString() }],
         ...Object.entries(latest).filter(
@@ -74,6 +91,16 @@ export function createData({ demo = false, storage, fetcher = fetch,
     }
   }
   return { request };
+}
+
+// Keep the group's week and its audience names together, while allowing callers
+// to load independent groups concurrently.
+export async function requestGroupWeek(data, { group, subgroup, monday }) {
+  const [week, roster] = await Promise.all([
+    data.request("/schedule/week", { group, subgroup, monday }),
+    data.request("/groups/subgroups", { group }),
+  ]);
+  return { week, subgroups: roster.subgroups || [] };
 }
 
 async function demoRequest(path, p) {

@@ -31,7 +31,7 @@ import {
 import { nearbyLessons, nearbyBreaks, parseClassroom } from "./meetings.mjs";
 import { botLinks, botLink } from "./links.mjs";
 import { revisionRows } from "./revisions.mjs";
-import { createData } from "./data.mjs";
+import { createData, requestGroupWeek } from "./data.mjs";
 import { initPlatform, backButton, share, install } from "./platform.mjs";
 
 if (window.mpBoot) window.mpBoot.stage = "initializing";
@@ -233,6 +233,7 @@ const data = createData({ demo: config.demo, storage: config.beta ? undefined : 
 let generation = 0,
   searchGeneration = 0,
   pickerGeneration = 0,
+  pickerSession = 0,
   pickerTarget = "group",
   pickerItems = [],
   pickerTimer,
@@ -524,7 +525,7 @@ function render() {
           `<a href="${esc(urlFor(key))}" data-route="${key}" class="nav-link ${active === key ? "active" : ""}" ${active === key ? 'aria-current="page"' : ""}>${icon(ico)}${title}</a>`,
       )
       .join("");
-  const html = `<div class="app-shell route-${active}"><aside class="sidebar"><a class="brand" href="#schedule" data-route="schedule"><span class="brand-symbol">${esc(config.web_mark || (Array.from((config.app_name || "Между парами").trim())[0] || "м").toLowerCase() + ".")}</span><span class="brand-name">${esc(config.app_name || "Между парами")}<small>РАСПИСАНИЕ ${esc(config.university || "Университет")}</small></span></a><nav aria-label="Основная навигация">${links}${adminAccess ? `<a class="nav-link" href="/admin/">${icon("settings")}Админ-панель</a>` : ""}</nav><section><p class="side-label">ИЗБРАННЫЕ ГРУППЫ</p>${state.favorites.length ? state.favorites.map((g) => `<button class="favorite" data-action="favorite-open" data-id="${g.id}">${esc(g.name)}</button>`).join("") : '<p class="small" style="padding:0 14px;color:var(--sidebar-muted);line-height:1.6">Сохраните свою группу<br>или группу друга ☆</p>'}</section><div class="side-bottom">${botLinks.length ? `<div class="side-bots"><p class="side-label">РАСПИСАНИЕ В БОТЕ</p>${botsSection()}</div>` : ""}<a href="/source" class="small">Исходный код и лицензия</a><div class="side-footer"><span class="dot"></span>${esc(config.location_label || "Мой университет")}</div></div></aside><div class="page"><header class="topbar"><div class="breadcrumb">${esc(config.university || "Университет")} ${icon("right")} <span>${nav.find((n) => n[0] === active)?.[2]}</span></div><div class="mobile-brand"><span class="brand-symbol">${esc(config.web_mark || (Array.from((config.app_name || "Между парами").trim())[0] || "м").toLowerCase() + ".")}</span>${esc(config.app_name || "Между парами")}</div><div class="top-actions">${ib("theme", "sun", "Тема оформления", 'id="theme-toggle"')}${button("share", "<span>Поделиться</span>", "share", "", 'aria-label="Поделиться расписанием"')}<span class="avatar" aria-hidden="true">${universityMark()}</span></div></header><main id="main">${config.demo ? `<div class="notice demo">${icon("info")}<span>Демонстрация · Вымышленное расписание для знакомства с сайтом.</span></div>` : ""}${state.loading ? '<div class="loading-line" role="status" aria-label="Загрузка"></div>' : ""}${content()}</main></div><nav class="bottom-nav" aria-label="Мобильная навигация">${nav.map(([key, ico, , title]) => `<a href="${esc(urlFor(key))}" data-route="${key}" class="${active === key ? "active" : ""}" ${active === key ? 'aria-current="page"' : ""}>${icon(ico)}${title}</a>`).join("")}</nav></div>`;
+  const html = `<div class="app-shell route-${active}"><aside class="sidebar"><a class="brand" href="#schedule" data-route="schedule"><span class="brand-symbol">${esc(config.web_mark || (Array.from((config.app_name || "Между парами").trim())[0] || "м").toLowerCase() + ".")}</span><span class="brand-name">${esc(config.app_name || "Между парами")}<small>РАСПИСАНИЕ ${esc(config.university || "Университет")}</small></span></a><nav aria-label="Основная навигация">${links}${adminAccess ? `<a class="nav-link" href="/admin/">${icon("settings")}Админ-панель</a>` : ""}</nav><section><p class="side-label">ИЗБРАННЫЕ ГРУППЫ</p>${state.favorites.length ? state.favorites.map((g) => `<button class="favorite" data-action="favorite-open" data-id="${g.id}">${esc(g.name)}</button>`).join("") : '<p class="small" style="padding:0 14px;color:var(--sidebar-muted);line-height:1.6">Сохраните свою группу<br>или группу друга ☆</p>'}</section><div class="side-bottom">${botLinks.length ? `<div class="side-bots"><p class="side-label">РАСПИСАНИЕ В БОТЕ</p>${botsSection()}</div>` : ""}<div class="side-footer"><span class="dot"></span>${esc(config.location_label || "Мой университет")}</div></div></aside><div class="page"><header class="topbar"><div class="breadcrumb">${esc(config.university || "Университет")} ${icon("right")} <span>${nav.find((n) => n[0] === active)?.[2]}</span></div><div class="mobile-brand"><span class="brand-symbol">${esc(config.web_mark || (Array.from((config.app_name || "Между парами").trim())[0] || "м").toLowerCase() + ".")}</span>${esc(config.app_name || "Между парами")}</div><div class="top-actions">${ib("theme", "sun", "Тема оформления", 'id="theme-toggle"')}${button("share", "<span>Поделиться</span>", "share", "", 'aria-label="Поделиться расписанием"')}<span class="avatar" aria-hidden="true">${universityMark()}</span></div></header><main id="main">${config.demo ? `<div class="notice demo">${icon("info")}<span>Демонстрация · Вымышленное расписание для знакомства с сайтом.</span></div>` : ""}${state.loading ? '<div class="loading-line" role="status" aria-label="Загрузка"></div>' : ""}${content()}</main></div><nav class="bottom-nav" aria-label="Мобильная навигация">${nav.map(([key, ico, , title]) => `<a href="${esc(urlFor(key))}" data-route="${key}" class="${active === key ? "active" : ""}" ${active === key ? 'aria-current="page"' : ""}>${icon(ico)}${title}</a>`).join("")}</nav></div>`;
   // Фоновое обновление приходит каждые пять минут и при возврате на вкладку.
   // Пока разметка та же, DOM не трогаем вовсе: замена innerHTML сбрасывает
   // прокрутку и фокус, и именно она читалась как «сайт мигает».
@@ -664,38 +665,25 @@ async function load({ quiet = false, soft = false } = {}) {
       result.groupInfo = discipline.group || state.groupInfo;
       result.subgroups = roster.subgroups || [];
     } else if (group && route !== "settings") {
-      const responses = await Promise.all([
-        data.request("/schedule/week", { group, subgroup, monday: week }),
-        data.request("/groups/subgroups", { group }),
+      const [primary, comparison, exams] = await Promise.all([
+        requestGroupWeek(data, { group, subgroup, monday: week }),
+        route === "compare" && other
+          ? requestGroupWeek(data, { group: other, subgroup: otherSubgroup, monday: week })
+          : Promise.resolve(null),
         route === "schedule"
-          ? data
-              .request("/schedule/exams", { group, subgroup })
-              .catch(() => ({}))
+          ? data.request("/schedule/exams", { group, subgroup }).catch(() => ({}))
           : Promise.resolve({}),
       ]);
-      result.data = responses[0];
-      result.groupInfo = responses[0].group;
-      result.subgroups = responses[1].subgroups || [];
-      // Порядок сессии — обещание «ближайшее сверху». Сервер его держит, но
-      // ошибиться здесь значит назвать не тот экзамен, поэтому сортируем сами.
-      result.exams = [...(responses[2].items || [])].sort(
-        (a, b) =>
-          a.date.localeCompare(b.date) ||
-          a.minute_from - b.minute_from ||
-          a.id - b.id,
+      result.data = primary.week;
+      result.groupInfo = primary.week.group;
+      result.subgroups = primary.subgroups;
+      result.exams = [...(exams.items || [])].sort(
+        (a, b) => a.date.localeCompare(b.date) || a.minute_from - b.minute_from || a.id - b.id,
       );
-      if (route === "compare" && other) {
-        const rs = await Promise.all([
-          data.request("/schedule/week", {
-            group: other,
-            subgroup: otherSubgroup,
-            monday: week,
-          }),
-          data.request("/groups/subgroups", { group: other }),
-        ]);
-        result.other = rs[0];
-        result.otherInfo = rs[0].group;
-        result.otherSubgroups = rs[1].subgroups || [];
+      if (comparison) {
+        result.other = comparison.week;
+        result.otherInfo = comparison.week.group;
+        result.otherSubgroups = comparison.subgroups;
       }
     }
     if (g !== generation) return;
@@ -864,15 +852,15 @@ function dayList(week, grid) {
   return `<div class="day-tabs" aria-label="День недели">${dates.map(d => `<button data-action="day" data-date="${d}" class="${[state.date === d ? "active" : "", d === today() ? "today" : ""].filter(Boolean).join(" ")}" aria-pressed="${state.date === d}" ${d === today() ? 'aria-current="date"' : ""}>${dateLabel(d, { weekday: "short" })}<strong>${dateLabel(d, { day: "numeric" })}</strong>${d === today() ? '<span class="today-label">Сегодня</span>' : ""}</button>`).join("")}</div><div class="day-list">${rows.length ? rows.map((row, i) => `<div class="schedule-row">${i === mark ? nowLine() : ""}${!row.free ? transferNote(rows[i - 1]?.lesson, row.lesson) : ""}<div class="day-row${row.free ? " is-free" : ""}"><div class="day-time">${row.free ? clock(row.free.from) : row.lesson.minute_to > row.lesson.minute_from ? clock(row.lesson.minute_from) : "—"}<span>${row.free ? clock(row.free.to) : row.lesson.minute_to > row.lesson.minute_from ? clock(row.lesson.minute_to) : "—"}</span>${row.lesson?.number ? `<small>${row.lesson.number} пара</small>` : ""}</div><div class="${row.lessons?.length > 1 ? "parallel" : "day-cards"}">${row.free ? freeSlot(row.free) : rowLessons(row, true)}</div></div></div>`).join("") : empty("Занятий на этот день нет", "Если расписание ещё не опубликовано или не полностью загружено, пары могут появиться позже.")}</div>`;
 }
 function miniCalendar() {
-  const first = state.week.slice(0, 8) + "01",
+  const first = (state.view === "day" ? state.date : state.week).slice(0, 8) + "01",
     start = monday(first);
-  return `<section class="panel mini-calendar"><div class="month"><span>${dateLabel(first, { month: "long", year: "numeric" })}</span>${icon("calendar")}</div><div class="calendar-grid">${["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map((d) => `<span>${d}</span>`).join("")}${Array.from(
+  return `<section class="panel mini-calendar"><div class="month"><span>${capitalize(dateLabel(first, { month: "long", year: "numeric" }))}</span>${icon("calendar")}</div><div class="calendar-grid">${["пн", "вт", "ср", "чт", "пт", "сб", "вс"].map((d) => `<span>${d}</span>`).join("")}${Array.from(
     { length: 42 },
     (_, i) => shift(start, i),
   )
     .map(
       (d) =>
-        `<button class="${d === today() ? "today" : monday(d) === state.week ? "selected" : ""}" data-action="calendar" data-date="${d}" aria-label="${dateLabel(d)}">${dateLabel(d, { day: "numeric" })}</button>`,
+        `<button class="${[d.slice(0, 7) !== first.slice(0, 7) ? "outside-month" : "", monday(d) === state.week ? "selected" : "", d === today() ? "today" : "", state.view === "day" && d === state.date ? "active" : ""].filter(Boolean).join(" ")}" data-action="calendar" data-date="${d}" aria-label="${dateLabel(d, { day: "numeric", month: "long", year: "numeric" })}${d === today() ? ", сегодня" : ""}" aria-pressed="${state.view === "day" ? d === state.date : monday(d) === state.week}" ${d === today() ? 'aria-current="date"' : ""}>${dateLabel(d, { day: "numeric" })}</button>`,
     )
     .join("")}</div></section>`;
 }
@@ -895,17 +883,34 @@ function myDayView() {
     return `<section class="my-day" aria-label="Мой день"><div class="my-day-top"><span class="eyebrow">Мой день</span>${icon("calendar")}</div><h2>Следующий учебный день</h2><p class="my-day-note">${text}</p>${state.upcomingError ? button("reload", "Повторить", "refresh") : ""}</section>`;
   }
   const sum = dayOverview(day, source.grid || state.data.grid);
-  const when = day.date === today() ? "Сегодня" : day.date === shift(today(), 1) ? "Завтра" : dateLabel(day.date, { weekday: "long" });
+  const when = day.date === today() ? "Сегодня" : day.date === shift(today(), 1) ? "Завтра" : capitalize(dateLabel(day.date, { weekday: "long" }));
   const started = day.date === today() && sum.start !== null && nowMinute() >= sum.start;
   const places = [...new Set(sum.first.map(l => placeLabel(l)))];
-  const focus = day.date === today() ? scheduleFocus({ monday: state.week, days: [day] }, today(), nowMinute()) : null;
-  const current = focus?.lesson && state.data.week.days.some(d => d.items?.some(l => l.id === focus.lesson.id))
-    ? `<button class="my-day-now" data-action="lesson" data-id="${focus.lesson.id}"><span>${focus.kind === "current" ? (old || incomplete ? "По расписанию" : "Сейчас") : "Дальше"}</span><strong>${esc(focus.lesson.discipline || "Занятие")}</strong><span>${focus.kind === "current" ? `ещё ${focus.remaining} мин` : focus.lesson.minute_to > focus.lesson.minute_from ? `в ${clock(focus.lesson.minute_from)}` : "время не указано"} · ${esc(placeLabel(focus.lesson))}</span>${icon("right")}</button>` : "";
   const todayLessons = (state.data.week.days.find(d => d.date === today())?.items || []).filter(actual);
   const finished = day.date > today() && todayLessons.length && todayLessons.every(l => l.minute_to > l.minute_from && l.minute_to <= nowMinute());
-  const composition = `<ul class="my-day-kinds" aria-label="Состав дня">${sum.kinds.map(k => `<li><span>${esc(k.label)}</span><strong>${k.count}</strong></li>`).join("")}</ul>`;
+  const kindWords = {
+    "Лекции": ["лекция", "лекции", "лекций"],
+    "Практические": ["практика", "практики", "практик"],
+    "Семинары": ["семинар", "семинара", "семинаров"],
+    "Лабораторные": ["лабораторная", "лабораторные", "лабораторных"],
+    "Экзамен": ["экзамен", "экзамена", "экзаменов"],
+    "Зачёт": ["зачёт", "зачёта", "зачётов"],
+  };
+  const composition = `<ul class="my-day-kinds" aria-label="Состав дня">${sum.kinds.map(k => `<li>${esc(Object.hasOwn(kindWords, k.label) ? `${k.count} ${plural(k.count, ...kindWords[k.label])}` : k.label === "Тип не указан" ? `${k.count} без указания типа` : `${k.label}: ${k.count}`)}</li>`).join("")}</ul>`;
   const windows = sum.windows.map(w => `${icon("coffee")}Окно ${clock(w.from)}–${clock(w.to)} · ${w.to-w.from} мин`);
-  return `<section class="my-day" aria-label="Мой день"><div class="my-day-top"><span class="eyebrow">${day.date === today() ? "Мой день" : "Следующий учебный день"}</span><span>${dateLabel(day.date, { day: "numeric", month: "long" })}</span></div><div class="my-day-main"><div><h2>${when}${sum.start === null ? " · время уточняется" : ` ${started ? "с" : "к"} ${clock(sum.start)}`}</h2><p class="my-day-facts"><strong>${sum.count} ${plural(sum.count, "занятие", "занятия", "занятий")}</strong>${sum.end !== null ? `<span>до ${clock(sum.end)}</span>` : ""}${!state.subgroup && state.subgroups.length ? "<span>все подгруппы</span>" : ""}</p></div>${button("calendar", "Открыть день", "right", "my-day-open", `data-date="${day.date}"`)}</div>${places.length ? `<p class="my-day-place">${icon("pin")}${places.length > 1 ? "Первые занятия: " : "Первое занятие: "}${esc(places.join(" · "))}</p>` : ""}${composition}${windows.length ? `<details class="my-day-details"><summary>${sum.windows.length} ${plural(sum.windows.length, "окно", "окна", "окон")}</summary><ul>${windows.map(w => `<li>${w}</li>`).join("")}</ul></details>` : ""}${current}${finished ? '<p class="my-day-note">На сегодня пары закончились.</p>' : ""}${sum.unknown ? '<p class="my-day-note">У части занятий нет времени: начало, конец дня и окна пока неизвестны.</p>' : ""}${warning ? `<p class="my-day-note">${warning}</p>` : ""}</section>`;
+  // Keep the preview vertical, and skip finished lessons as today's clock advances.
+  const remaining = sum.lessons.filter(l => day.date !== today() || !(l.minute_to > l.minute_from) || l.minute_to > nowMinute());
+  // Untimed entries have no chronological position; keep them after known times.
+  remaining.sort((a, b) => Number(b.minute_to > b.minute_from) - Number(a.minute_to > a.minute_from) || a.minute_from - b.minute_from);
+  const preview = remaining.slice(0, 3);
+  const agenda = `<div class="my-day-agenda${day.date === today() ? " is-today" : ""}"><div class="my-day-agenda-heading"><h3>${day.date === today() ? "Ближайшие занятия" : "План дня"}</h3><span>${remaining.length > preview.length ? `Первые ${preview.length} из ${remaining.length}` : `${preview.length} ${plural(preview.length, "занятие", "занятия", "занятий")}`}</span></div><ol class="my-day-lessons">${preview.map(l => {
+    const kind = lessonKind(l.class_type);
+    const timed = l.minute_to > l.minute_from;
+    const running = day.date === today() && timed && l.minute_from <= nowMinute() && nowMinute() < l.minute_to;
+    const audience = l.subgroup_id ? audienceName(l, state.subgroups, state.groupInfo?.name) : "";
+    return `<li><button class="my-day-lesson ${kind.key}" data-action="upcoming-lesson" data-id="${l.id}" data-date="${day.date}"><span class="my-day-time">${timed ? `${clock(l.minute_from)}<small>${clock(l.minute_to)}</small>` : '—<small>Уточняется</small>'}</span><span class="my-day-lesson-body"><strong>${esc(l.discipline || "Занятие")}</strong><span>${esc([kind.label, placeLabel(l), audience].filter(Boolean).join(" · "))}</span></span>${running ? `<span class="my-day-status">${old || incomplete ? "По расписанию" : "Сейчас"}</span>` : icon("right")}</button></li>`;
+  }).join("")}</ol>${remaining.length > preview.length ? button("calendar", `Ещё ${remaining.length - preview.length} ${plural(remaining.length - preview.length, "занятие", "занятия", "занятий")} · открыть день`, "right", "my-day-more", `data-date="${day.date}"`) : ""}</div>`;
+  return `<section class="my-day" aria-label="Мой день"><div class="my-day-layout"><div class="my-day-summary"><div class="my-day-top"><span class="eyebrow">${day.date === today() ? "Мой день" : "Следующий учебный день"}</span><span>${dateLabel(day.date, { day: "numeric", month: "long" })}</span></div><h2>${when}${sum.start === null ? " · время уточняется" : ` ${started ? "с" : "к"} ${clock(sum.start)}`}</h2><p class="my-day-facts"><strong>${sum.count} ${plural(sum.count, "занятие", "занятия", "занятий")}</strong>${sum.end !== null ? `<span>до ${clock(sum.end)}</span>` : ""}${!state.subgroup && state.subgroups.length ? "<span>все подгруппы</span>" : ""}</p>${places.length && !started ? `<p class="my-day-place">${icon("pin")}${places.length > 1 ? "Первые занятия: " : "Первое занятие: "}${esc(places.join(" · "))}</p>` : ""}${composition}${windows.length ? `<details class="my-day-details"><summary>${sum.windows.length} ${plural(sum.windows.length, "окно", "окна", "окон")}</summary><ul>${windows.map(w => `<li>${w}</li>`).join("")}</ul></details>` : ""}${finished ? '<p class="my-day-note">На сегодня пары закончились.</p>' : ""}${sum.unknown ? '<p class="my-day-note">У части занятий нет времени: начало, конец дня и окна пока неизвестны.</p>' : ""}${warning ? `<p class="my-day-note">${warning}</p>` : ""}${button("calendar", "Открыть день", "right", "my-day-open", `data-date="${day.date}"`)}</div>${agenda}</div></section>`;
 }
 
 function nextCard() {
@@ -1466,29 +1471,36 @@ async function openPicker(target = "group") {
   pickerTarget = target;
   pickerItems = [];
   const g = ++pickerGeneration;
+  const session = ++pickerSession;
+  clearTimeout(pickerTimer);
   const quickGroups = [...new Map([...(state.groupInfo ? [state.groupInfo] : []), ...state.favorites].map(g => [g.id, g])).values()];
-  const quick = `<div class="picker-quick">${quickGroups.length ? `<p class="small muted">${target === "compare" ? "Быстрый выбор" : "Текущая и избранные"}</p><div class="inline-actions">${quickGroups.map(g => button("quick-group", esc(g.name), "", "", `data-id="${g.id}" data-target="${target}"`)).join("")}</div>` : ""}${target === "group" && state.subgroups.length ? `<label class="picker-subgroup">Подгруппа ${esc(state.groupInfo?.name)}<select id="picker-subgroup">${options(state.subgroups, state.subgroup)}</select></label>` : ""}${target === "group" && state.groupInfo && state.homeGroup?.id !== state.group ? button("make-home", "Сделать эту группу моей", "star") : ""}</div>`;
+  const quick = `<div class="picker-quick">${quickGroups.length ? `<p class="small muted">${target === "compare" ? "Быстрый выбор" : "Текущая и избранные"}</p><div class="inline-actions">${quickGroups.map(g => button("quick-group", esc(g.name), "", "", `data-id="${g.id}" data-target="${target}"`)).join("")}</div>` : ""}${target === "group" && state.subgroups.length ? `<label class="picker-subgroup">Подгруппа ${esc(state.groupInfo?.name)}<select id="picker-subgroup" class="subgroup-select">${options(state.subgroups, state.subgroup)}</select></label>` : ""}${target === "group" && state.groupInfo && state.homeGroup?.id !== state.group ? button("make-home", "Сделать эту группу моей", "star") : ""}</div>`;
   $("#picker").innerHTML =
-    `<div class="dialog-head"><h2 id="picker-title">${target === "compare" ? "Группа друга" : "Выберите свою группу"}</h2>${ib("close-picker", "close", "Закрыть")}</div>${quick}<label class="search-field">${icon("search")}<input id="group-search" type="search" placeholder="Название вашей группы" aria-label="Название группы" autocomplete="off"></label><div class="inline-actions" style="margin-top:12px"><select id="department" class="subgroup-select" aria-label="Институт"><option value="">Или выберите институт</option></select><select id="course" class="subgroup-select" aria-label="Курс" hidden><option value="">Курс</option></select></div><div class="picker-results" id="group-results" aria-live="polite"><p class="progress-text">Загружаем каталог…</p></div>`;
+    `<div class="dialog-head"><h2 id="picker-title">${target === "compare" ? "Группа друга" : "Выберите свою группу"}</h2>${ib("close-picker", "close", "Закрыть")}</div>${quick}<label class="search-field">${icon("search")}<input id="group-search" type="search" placeholder="Название вашей группы" aria-label="Название группы" autocomplete="off"></label><div class="picker-filters"><select id="department" class="subgroup-select" aria-label="Институт"><option value="">Или выберите институт</option></select><select id="course" class="subgroup-select" aria-label="Курс" hidden><option value="">Курс</option></select></div><div class="picker-results" id="group-results" aria-live="polite"><p class="progress-text">Загружаем каталог…</p></div>`;
   $("#picker").showModal();
   $("#group-search").focus();
   try {
     const r = await data.request("/groups/departments");
-    if (g !== pickerGeneration) return;
+    if (session !== pickerSession || !$("#picker").open) return;
     $("#department").innerHTML =
       '<option value="">Или выберите институт</option>' +
       (r.departments || [])
         .map((d) => `<option value="${d.id}">${esc(d.name)}</option>`)
         .join("");
+    if (g !== pickerGeneration) return;
     if (config.demo) await searchGroups("");
     else {
       $("#group-results").innerHTML =
         '<p class="progress-text">Введите название группы или выберите институт и курс.</p>';
     }
   } catch {
-    $("#group-results").innerHTML =
-      '<p class="error-text">Каталог временно недоступен. Попробуйте поиск по названию.</p>';
+    if (session === pickerSession && g === pickerGeneration && $("#picker").open)
+      pickerStatus("Каталог временно недоступен. Попробуйте поиск по названию.", true);
   }
+}
+function pickerStatus(message, error = false) {
+  pickerItems = [];
+  $("#group-results").innerHTML = `<p class="${error ? "error-text" : "progress-text"}" role="status">${esc(message)}</p>`;
 }
 function showGroups(groups) {
   pickerItems = groups;
@@ -1501,17 +1513,21 @@ function showGroups(groups) {
         .join("")
     : '<p class="progress-text">Группы не найдены. Попробуйте другое название или курс.</p>';
 }
-async function searchGroups(q) {
+// Only the latest picker operation may change its results, including errors.
+async function pickerRequest(message, path, params, apply) {
+  clearTimeout(pickerTimer);
   const g = ++pickerGeneration;
-  $("#group-results").innerHTML = '<p class="progress-text">Ищем группу…</p>';
+  pickerStatus(message);
   try {
-    const r = await data.request("/groups/search", { q, limit: 50 });
-    if (g === pickerGeneration && $("#picker").open) showGroups(r.groups || []);
+    const result = await data.request(path, params);
+    if (g === pickerGeneration && $("#picker").open) apply(result);
   } catch {
-    if (g === pickerGeneration)
-      $("#group-results").innerHTML =
-        '<p class="error-text">Не удалось найти группы. Попробуйте ещё раз.</p>';
+    if (g === pickerGeneration && $("#picker").open)
+      pickerStatus("Не удалось загрузить группы. Повторите поиск или выбор института.", true);
   }
+}
+function searchGroups(q) {
+  return pickerRequest("Ищем группу…", "/groups/search", { q, limit: 50 }, r => showGroups(r.groups || []));
 }
 async function chooseGroup(id) {
   const group = pickerItems.find((g) => g.id === id);
@@ -1538,12 +1554,13 @@ function detail(title, body) {
     `<div class="dialog-head"><h2 id="detail-title">${title}</h2>${ib("close-detail", "close", "Закрыть")}</div>${body}`;
   $("#detail").showModal();
 }
-function showLesson(id, date = "") {
+function showLesson(id, date = "", upcoming = false) {
   // Дата уточняет, какое именно занятие открыть: в ленте предмета одна и та
   // же пара повторяется каждую неделю, и без даты диалог показал бы первую
   // попавшуюся.
+  const upcomingDays = state.route === "schedule" && state.upcomingKey === `${state.group}:${state.subgroup}:${today()}` ? state.upcoming?.days : null;
   let l = [
-    ...(state.route === "schedule" && (state.subject || state.subjectName)
+    ...(upcoming ? items({ days: upcomingDays || state.data?.week?.days || [] }) : state.route === "schedule" && (state.subject || state.subjectName)
       ? state.subjectData?.items || []
       : state.route === "teachers" ? items(state.teacherData?.week) : items(state.data?.week)),
   ].find((l) => l.id === id && (!date || l.date === date));
@@ -1763,6 +1780,9 @@ document.addEventListener("click", async (event) => {
         state.teacherSubject = "";
         await navigate("teachers");
         break;
+      case "upcoming-lesson":
+        showLesson(Number(el.dataset.id), el.dataset.date || "", true);
+        break;
       case "lesson":
         showLesson(Number(el.dataset.id), el.dataset.date || "");
         break;
@@ -1909,6 +1929,10 @@ document.addEventListener("input", (event) => {
     clearTimeout(pickerTimer);
     ++pickerGeneration;
     const q = event.target.value;
+    $("#department").value = "";
+    $("#course").value = "";
+    $("#course").hidden = true;
+    pickerStatus("Ищем группу…");
     pickerTimer = setTimeout(() => searchGroups(q), 250);
   }
   if (event.target.id === "teacher-search") {
@@ -1998,29 +2022,33 @@ document.addEventListener("change", async (event) => {
       applyTheme();
     }
     if (el.id === "department") {
-      const g = ++pickerGeneration;
+      ++pickerGeneration;
+      clearTimeout(pickerTimer);
+      $("#group-search").value = "";
       $("#course").hidden = true;
-      $("#group-results").innerHTML = "";
-      if (!el.value) return;
-      const r = await data.request("/groups/list", { department: el.value });
-      if (g !== pickerGeneration) return;
-      $("#course").innerHTML =
-        '<option value="">Выберите курс</option>' +
-        (r.courses || [])
-          .map((c) => `<option value="${c}">${c} курс</option>`)
-          .join("");
-      $("#course").hidden = false;
+      $("#course").value = "";
+      if (!el.value) {
+        pickerStatus("Введите название группы или выберите институт и курс.");
+        return;
+      }
+      await pickerRequest("Загружаем курсы…", "/groups/list", { department: el.value }, r => {
+        const courses = r.courses || [];
+        $("#course").innerHTML = '<option value="">Выберите курс</option>' +
+          courses.map(c => `<option value="${c}">${c} курс</option>`).join("");
+        $("#course").hidden = !courses.length;
+        pickerStatus(courses.length ? "Выберите курс, чтобы увидеть группы." : "В этом институте пока нет доступных групп.");
+      });
     }
     if (el.id === "course") {
-      const g = ++pickerGeneration;
-      if (!el.value) return;
-      $("#group-results").innerHTML =
-        '<p class="progress-text">Загружаем группы…</p>';
-      const r = await data.request("/groups/list", {
-        department: $("#department").value,
-        course: el.value,
-      });
-      if (g === pickerGeneration) showGroups(r.groups || []);
+      ++pickerGeneration;
+      clearTimeout(pickerTimer);
+      if (!el.value) {
+        pickerStatus("Выберите курс, чтобы увидеть группы.");
+        return;
+      }
+      await pickerRequest("Загружаем группы…", "/groups/list", {
+        department: $("#department").value, course: el.value,
+      }, r => showGroups(r.groups || []));
     }
   } catch {
     toast("Не удалось загрузить данные. Попробуйте ещё раз.");
@@ -2031,6 +2059,7 @@ $("#detail").addEventListener("close", () => {
   detailFocus = null;
 });
 $("#picker").addEventListener("close", () => {
+  ++pickerSession;
   ++pickerGeneration;
   clearTimeout(pickerTimer);
 });

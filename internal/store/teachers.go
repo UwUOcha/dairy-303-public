@@ -159,24 +159,27 @@ func (db *DB) TeacherLessons(ctx context.Context, id int64, from, to string) ([]
 // CatalogCoverage counts downloaded group-months, including empty schedules.
 // Absence of lessons is never evidence that a teacher is free.
 func (db *DB) CatalogCoverage(ctx context.Context, months [][2]int) (loaded, expected int, oldest time.Time, err error) {
-	var groups int
-	err = db.r.QueryRowContext(ctx, `SELECT COUNT(*) FROM groups WHERE is_active=1 AND shadowed=0`).Scan(&groups)
-	if err != nil {
+	if len(months) == 0 {
 		return
 	}
-	expected = groups * len(months)
-	for _, m := range months {
-		var n, stamp int64
-		err = db.r.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(MIN(ms.fetched_at),0)
-		FROM month_state ms JOIN groups g ON g.id=ms.group_id
-		WHERE g.is_active=1 AND g.shadowed=0 AND ms.year=? AND ms.month=?`, m[0], m[1]).Scan(&n, &stamp)
-		if err != nil {
-			return
-		}
-		loaded += int(n)
-		if stamp > 0 && (oldest.IsZero() || time.Unix(stamp, 0).Before(oldest)) {
-			oldest = time.Unix(stamp, 0)
-		}
+	values := make([]string, len(months))
+	args := make([]any, 0, len(months)*2)
+	for i, month := range months {
+		values[i] = "(?,?)"
+		args = append(args, month[0], month[1])
+	}
+	// Batch indexed group/month lookups into one statement. Counts and freshness
+	// share a database snapshot; a zero timestamp remains unknown freshness.
+	var stamp int64
+	err = db.r.QueryRowContext(ctx, `WITH requested(year,month) AS (VALUES `+strings.Join(values, ",")+`),
+	active AS (SELECT id FROM groups WHERE is_active=1 AND shadowed=0)
+	SELECT COUNT(ms.group_id),
+	 (SELECT COUNT(*) FROM active)*(SELECT COUNT(*) FROM requested),
+	 COALESCE(MIN(ms.fetched_at),0)
+	 FROM requested r CROSS JOIN active g LEFT JOIN month_state ms
+	 ON ms.group_id=g.id AND ms.year=r.year AND ms.month=r.month`, args...).Scan(&loaded, &expected, &stamp)
+	if stamp > 0 {
+		oldest = time.Unix(stamp, 0)
 	}
 	return
 }

@@ -8,7 +8,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import * as model from "../internal/web/assets/model.mjs";
 import { revisionRows } from "../internal/web/assets/revisions.mjs";
-import { createData } from "../internal/web/assets/data.mjs";
+import { createData, requestGroupWeek } from "../internal/web/assets/data.mjs";
 import {
   parseClassroom,
   nearbyLessons,
@@ -623,6 +623,7 @@ async function appHarness({
     diffLessons,
     HISTORY_KEY,
     revisionRows,
+    requestGroupWeek,
     revisionSummary,
     createData: (options) => {
       const data = createData({ ...options, isOnline: () => !offline });
@@ -1798,8 +1799,8 @@ test("next day shows its composition without expanding details or suggesting bui
   ]}],grid:demoGrid}}});
   const card=app.element("#app").innerHTML.match(/<section class="my-day"[\s\S]*?<\/section>/)[0];
   assert.match(card,/<ul class="my-day-kinds" aria-label="Состав дня">/);
-  assert.match(card,/<span>Лекции<\/span><strong>1/);
-  assert.match(card,/<span>Семинары<\/span><strong>1/);
+  assert.match(card,/<li>1 лекция<\/li>/);
+  assert.match(card,/<li>1 семинар<\/li>/);
   assert.match(card,/&lt;img src=x&gt;/);
   assert.doesNotMatch(card,/смен.*корпус|перерыв|<img|<details/);
 });
@@ -1810,4 +1811,179 @@ test("installation mark and university render safely in desktop and mobile navig
   assert.equal((html.match(/class="brand-symbol">&lt;У&gt;/g) || []).length, 2);
   assert.match(html, /class="breadcrumb">Другой &lt;вуз&gt;/);
   assert.doesNotMatch(html, /class="brand-symbol">м\./);
+});
+
+const deferred = () => {
+  let resolve, reject;
+  const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+};
+
+test("identical in-flight reads share one fetch, then allow a fresh refresh", async () => {
+  const gate = deferred();
+  let calls = 0, reads = 0;
+  const saved = memory();
+  const storage = { ...saved, getItem: key => { reads++; return saved.getItem(key); } };
+  const data = createData({ storage, fetcher: async () => {
+    calls++;
+    await gate.promise;
+    return { ok: true, json: async () => ({ version: calls }) };
+  } });
+  const first = data.request("/schedule/week", { group: 39, subgroup: 0 });
+  const second = data.request("/schedule/week", { subgroup: 0, group: 39 });
+  assert.equal(calls, 1);
+  assert.equal(reads, 0, "do not deserialize the offline cache before a successful fetch");
+  gate.resolve();
+  assert.deepEqual(await first, await second);
+  assert.equal(reads, 1, "merge the cache once for the shared response");
+  assert.equal((await data.request("/schedule/week", { group: 39, subgroup: 0 })).version, 2);
+});
+
+test("failed shared requests are evicted and different subgroups stay independent", async () => {
+  const gate = deferred();
+  let calls = 0;
+  const data = createData({ fetcher: async () => {
+    calls++;
+    await gate.promise;
+    return { ok: false, status: 404 };
+  } });
+  const requests = [
+    data.request("/schedule/week", { group: 39, subgroup: 1 }),
+    data.request("/schedule/week", { group: 39, subgroup: 1 }),
+    data.request("/schedule/week", { group: 39, subgroup: 2 }),
+  ];
+  assert.equal(calls, 2);
+  gate.resolve();
+  assert.ok((await Promise.allSettled(requests)).every(r => r.status === "rejected" && r.reason.status === 404));
+  await assert.rejects(data.request("/schedule/week", { group: 39, subgroup: 1 }));
+  assert.equal(calls, 3);
+});
+
+test("both comparison groups start loading before either week returns", async () => {
+  const gate = deferred(), started = [];
+  const slow = await appHarness({ hash: "#settings", extra: {
+    "/schedule/week": async params => {
+      started.push(params.group);
+      await gate.promise;
+      return createData({ demo: true }).request("/schedule/week", params);
+    },
+  } });
+  const loading = slow.click({ route: "compare" });
+  await new Promise(resolve => setImmediate(resolve));
+  try { assert.equal(new Set(started).size, 2); }
+  finally { gate.resolve(); await loading; }
+  assert.match(slow.element("#app").innerHTML, /proximity-card/);
+});
+
+test("typing while departments load retains both search results and institute choices", async () => {
+  const departments = deferred();
+  const app = await appHarness({ extra: { "/groups/departments": () => departments.promise } });
+  const opening = app.click({ action: "pick", target: "group" });
+  await new Promise(resolve => setImmediate(resolve));
+  app.listeners.input({ target: { id: "group-search", value: "леч" } });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  const results = app.element("#group-results").innerHTML;
+  departments.resolve({ departments: [{ id: 1, name: "Новый институт" }] });
+  await opening;
+  assert.match(app.element("#department").innerHTML, /Новый институт/);
+  assert.equal(app.element("#group-results").innerHTML, results);
+});
+
+test("changing institute cancels pending text search and clearing course removes old results", async () => {
+  let searches = 0;
+  const app = await appHarness({ extra: { "/groups/search": () => { searches++; return { groups: [] }; } } });
+  await app.click({ action: "pick", target: "group" });
+  const before = searches;
+  app.listeners.input({ target: { id: "group-search", value: "леч" } });
+  await app.listeners.change({ target: { id: "department", value: "1" } });
+  await new Promise(resolve => setTimeout(resolve, 300));
+  assert.equal(searches, before);
+  assert.match(app.element("#group-results").innerHTML, /Выберите курс/);
+  await app.listeners.change({ target: { id: "course", value: "2" } });
+  await app.listeners.change({ target: { id: "course", value: "" } });
+  assert.doesNotMatch(app.element("#group-results").innerHTML, /pick-option/);
+  assert.match(app.element("#group-results").innerHTML, /Выберите курс/);
+});
+
+test("a failed catalog from a closed picker cannot overwrite the reopened picker", async () => {
+  const old = deferred();
+  let calls = 0;
+  const app = await appHarness({ extra: { "/groups/departments": () => ++calls === 1 ? old.promise : { departments: [] } } });
+  const opening = app.click({ action: "pick", target: "group" });
+  await new Promise(resolve => setImmediate(resolve));
+  await app.click({ action: "close-picker" });
+  await app.click({ action: "pick", target: "group" });
+  const results = app.element("#group-results").innerHTML;
+  old.reject(new Error("old request failed"));
+  await opening;
+  assert.equal(app.element("#group-results").innerHTML, results);
+});
+
+test("shared offline reads find existing cache entries regardless of parameter order", async () => {
+  const storage = memory();
+  storage.setItem("mp.schedule-cache.v1", JSON.stringify({
+    "/api/schedule/week?group=39&subgroup=1": { value: { group: { id: 39 } }, saved: "2026-09-13T10:00:00Z" },
+  }));
+  const data = createData({ storage, isOnline: () => false });
+  const [first, second] = await Promise.all([
+    data.request("/schedule/week", { subgroup: 1, group: 39 }),
+    data.request("/schedule/week", { group: 39, subgroup: 1 }),
+  ]);
+  assert.deepEqual(first, second);
+  assert.equal(first.offline, true);
+  assert.equal(first.stale, true);
+  assert.equal(first.group.id, 39);
+});
+
+test("upcoming preview opens the right date when another week reuses lesson IDs", async () => {
+  const date = "2026-09-14";
+  const app = await appHarness({ dateNow: () => "2026-09-13", query: "?group=39&week=2026-09-07",
+    transform: r => r.week.monday === "2026-09-07" ? ({ ...r, week: { ...r.week, days: [{date: "2026-09-07", items: [lesson(510,605,{discipline:"Прошлая неделя"})]}] } }) : r,
+    extra: { "/schedule/upcoming": {days: [{date, items: [
+      lesson(625,720,{date,discipline:"Следующая неделя",class_type:"Лабораторная"}),
+      lesson(740,835,{id:2,date,class_type:"Лабораторная"}),
+    ]}], grid: demoGrid} },
+  });
+  const card = app.element("#app").innerHTML.match(/<section class="my-day"[\s\S]*?<\/section>/)[0];
+  assert.match(card, /2 лабораторные/);
+  assert.equal((card.match(/data-action="upcoming-lesson"/g) || []).length, 2);
+  await app.click({action:"upcoming-lesson", id:"1", date});
+  assert.equal(app.element("#detail").open, true);
+  assert.match(app.element("#detail").innerHTML, /Следующая неделя/);
+  assert.match(app.element("#detail").innerHTML, /14 сентября/);
+  assert.doesNotMatch(app.element("#detail").innerHTML, /Прошлая неделя/);
+  await app.click({action:"close-detail"});
+  await app.click({action:"calendar",date});
+  assert.equal(new URLSearchParams(app.location.search).get("date"),date);
+});
+
+test("today's preview skips ended lessons, retains unknown times and explains its limit", async () => {
+  const date = "2026-09-14";
+  const app = await appHarness({dateNow: () => date, clockMinute: () => 650,
+    extra: {"/schedule/upcoming": {days: [{date, items: [
+      lesson(510,605,{id:1,date,discipline:"Уже закончилась"}),
+      lesson(625,720,{id:2,date,discipline:"Сейчас идёт"}),
+      lesson(740,835,{id:3,date}), lesson(865,960,{id:4,date}),
+      lesson(980,1075,{id:5,date}), lesson(0,0,{id:6,date,discipline:"Без времени"}),
+    ]}], grid: demoGrid}},
+  });
+  const card = app.element("#app").innerHTML.match(/<section class="my-day"[\s\S]*?<\/section>/)[0];
+  assert.doesNotMatch(card, /Уже закончилась/);
+  assert.doesNotMatch(card, /<strong>Без времени<\/strong>/);
+  assert.match(card, /Сейчас идёт/);
+  assert.match(card, /my-day-status">Сейчас/);
+  assert.equal((card.match(/data-action="upcoming-lesson"/g)||[]).length, 3);
+  assert.match(card, /Первые 3 из 5/);
+  assert.match(card, /Ещё 2 занятия · открыть день/);
+  assert.match(card, /У части занятий нет времени/);
+});
+
+test("calendar tracks the selected day across a month boundary and distinguishes today", async () => {
+  const app = await appHarness({dateNow: () => "2026-09-30", query:"?group=39&week=2026-09-28"});
+  await app.click({action:"calendar",date:"2026-10-01"});
+  const calendar = app.element("#app").innerHTML.match(/<section class="panel mini-calendar"[\s\S]*?<\/section>/)[0];
+  assert.match(calendar, /Октябрь 2026/);
+  assert.match(calendar, /class="selected active"[^>]*data-date="2026-10-01"[^>]*aria-pressed="true"/);
+  assert.match(calendar, /class="outside-month selected today"[^>]*data-date="2026-09-30"[^>]*aria-current="date"/);
+  assert.match(calendar, /class="outside-month"[^>]*data-date="2026-11-01"/);
 });

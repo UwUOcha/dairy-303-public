@@ -1944,6 +1944,17 @@ dialog::backdrop {
   overflow: auto;
   margin-top: 16px;
 }
+#picker[open] {
+  display: flex;
+  flex-direction: column;
+}
+#picker > :not(.picker-results) {
+  flex-shrink: 0;
+}
+#picker .picker-results {
+  flex: 1 1 auto;
+  min-height: 100px;
+}
 .pick-option {
   border: 0;
   background: none;
@@ -3433,7 +3444,10 @@ article.teacher-subject:hover { border-color: var(--line); }
 .picker-quick { display: grid; gap: 12px; margin-bottom: 20px; }
 .picker-quick:empty { display: none; }
 .picker-subgroup { display: grid; gap: 8px; font-size: .875rem; }
-.picker-subgroup select { width: 100%; min-height: 44px; }
+.picker-subgroup select { width: 100%; max-width: none; min-height: 44px; }
+.picker-filters { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+.picker-filters select { flex: 1 1 110px; min-width: 0; max-width: 100%; min-height: 44px; }
+.picker-filters #department { flex-basis: 250px; }
 .group-controls .home-group { font-size: .8rem; padding: 6px; min-height: 36px; }
 .comparison-controls + .notice { margin-top: 12px; }
 .route-compare .toolbar { align-items: end; }
@@ -3533,12 +3547,12 @@ article.teacher-subject:hover { border-color: var(--line); }
   border-left: 4px solid var(--accent);
   border-radius: var(--radius);
 }
-.my-day-top, .my-day-main { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.my-day-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .my-day-top { color: var(--muted); font-size: .8rem; margin-bottom: 9px; }
 .my-day h2 { font-size: clamp(1.3rem, 2.3vw, 1.8rem); line-height: 1.25; letter-spacing: -.04em; margin: 0; }
 .my-day-facts { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 9px; font-size: .9rem; }
 .my-day-facts span { color: var(--muted); }
-.my-day-open { flex-shrink: 0; }
+.my-day-open { margin-top: 14px; min-height: 40px; }
 .my-day-place, .my-day-note { font-size: .8rem; color: var(--muted); line-height: 1.5; margin-top: 10px; overflow-wrap: anywhere; }
 .my-day-place { display: flex; align-items: center; gap: 7px; }
 .my-day .icon { flex-shrink: 0; width: 16px; height: 16px; }
@@ -3546,8 +3560,6 @@ article.teacher-subject:hover { border-color: var(--line); }
 .my-day-details summary { cursor: pointer; color: var(--text); padding: 6px 0; }
 .my-day-details ul { display: flex; flex-wrap: wrap; gap: 8px 20px; list-style: none; padding: 8px 0 0; margin: 0; }
 .my-day-details li { display: flex; gap: 7px; align-items: center; color: var(--muted); }
-.my-day-now { margin-top: 12px; padding: 10px 0 0; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: none; color: var(--text); display: flex; flex-wrap: wrap; gap: 5px 10px; width: 100%; text-align: left; font-size: .8rem; }
-.my-day-now span { color: var(--muted); }
 .day-tabs button { position: relative; }
 .day-tabs button.today { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
 .day-tabs button.today .today-label { display: block; font-size: .62rem; line-height: 1.35; font-weight: 650; }
@@ -3555,14 +3567,55 @@ article.teacher-subject:hover { border-color: var(--line); }
 @media (max-width: 600px) {
   .my-day { padding: 13px 14px; margin-bottom: 14px; border-radius: 14px; }
   .my-day-top { font-size: .7rem; gap: 6px; }
-  .my-day-main { flex-wrap: wrap; gap: 10px; }
   .my-day h2 { font-size: 1.4rem; }
   .my-day-facts { font-size: .8rem; gap: 4px 10px; margin-top: 6px; }
-  .my-day-open { font-size: .75rem; min-height: 36px; padding: 7px 10px; }
+  .my-day-open { font-size: .75rem; min-height: 40px; padding: 7px 10px; }
   .my-day-place, .my-day-note { font-size: .75rem; margin-top: 7px; }
 }
 
-.my-day-kinds { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; padding: 0; margin: 12px 0 0; }
-.my-day-kinds li { display: inline-flex; align-items: center; gap: 9px; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; font-size: .75rem; line-height: 1.4; max-width: 100%; overflow-wrap: anywhere; }
-.my-day-kinds span { min-width: 0; color: var(--muted); }
-.my-day-kinds strong { color: var(--text); font-variant-numeric: tabular-nums; }
+/* A summary and a short, chronological agenda share the desktop width. */
+.my-day-layout { display: grid; grid-template-columns: minmax(270px, .8fr) minmax(0, 1.4fr); gap: 28px; align-items: start; }
+.my-day-summary, .my-day-agenda { min-width: 0; }
+.my-day-summary h2 { overflow-wrap: anywhere; }
+.my-day-agenda { border-left: 1px solid var(--line); padding-left: 28px; }
+.my-day-agenda-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.my-day-agenda-heading h3 { margin: 0; font-size: .85rem; font-weight: 650; }
+.my-day-agenda-heading > span { color: var(--muted); font-size: .75rem; }
+.my-day-lessons { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.my-day-lesson { display: flex; align-items: center; gap: 14px; width: 100%; min-width: 0; min-height: 58px; text-align: left; border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; background: var(--bg); color: var(--text); }
+.my-day-lesson.lecture { border-left: 3px solid var(--purple-text); }
+.my-day-lesson.practice { border-left: 3px solid var(--blue-text); }
+.my-day-lesson.lab { border-left: 3px solid var(--peach-text); }
+.my-day-lesson:hover { background: var(--hover); border-color: var(--muted); }
+.my-day-time { display: grid; gap: 3px; flex: 0 0 62px; font-size: .85rem; font-weight: 650; font-variant-numeric: tabular-nums; }
+.my-day-time small { color: var(--muted); font-size: .7rem; font-weight: 400; }
+.my-day-lesson-body { display: grid; gap: 4px; min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.my-day-lesson-body strong { font-size: .85rem; line-height: 1.4; font-weight: 650; }
+.my-day-lesson-body > span { color: var(--muted); font-size: .75rem; line-height: 1.4; }
+.my-day-lesson > .icon { color: var(--muted); }
+.my-day-status { color: var(--green-text); background: var(--green); padding: 4px 6px; border-radius: 6px; font-size: .7rem; }
+.my-day-more { margin-top: 8px; min-height: 40px; font-size: .75rem; }
+.my-day-kinds { display: flex; flex-wrap: wrap; gap: 4px 0; list-style: none; padding: 0; margin: 10px 0 0; color: var(--muted); font-size: .8rem; line-height: 1.5; }
+.my-day-kinds li { max-width: 100%; overflow-wrap: anywhere; }
+.my-day-kinds li:not(:last-child)::after { content: "·"; padding: 0 8px; }
+/* Keep each weekday beside its date, instead of visually pairing it with the previous column. */
+.week-grid .day-heading { justify-content: flex-start; gap: 8px; }
+.calendar-grid button.outside-month:not(.selected):not(.today) { color: var(--muted); }
+.calendar-grid button.active { box-shadow: inset 0 0 0 2px var(--text); font-weight: 750; }
+@media (max-width: 1000px) {
+  .my-day-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .my-day-agenda { border-left: 0; border-top: 1px solid var(--line); padding: 14px 0 0; }
+}
+@media (max-width: 650px) {
+  /* The full agenda is one tap away; keep the mobile schedule above the fold. */
+  .my-day-agenda { display: none; }
+  .my-day-agenda.is-today { display: block; }
+  .my-day-agenda.is-today .my-day-lessons > li:not(:first-child),
+  .my-day-agenda.is-today .my-day-agenda-heading > span,
+  .my-day-agenda.is-today .my-day-more { display: none; }
+  .my-day-layout { display: block; }
+  .my-day-top { flex-wrap: wrap; }
+}
+@media print {
+  .my-day { display: none; }
+}

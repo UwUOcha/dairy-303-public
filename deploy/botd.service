@@ -1,0 +1,39 @@
+[Unit]
+Description=боты (botd)
+Documentation=https://github.com/UwUOcha/dairy-303
+After=network-online.target raspd.service
+Wants=network-online.target
+# Без демона расписания боту нечего показывать, но падать он не станет:
+# при старте botd сам ждёт появления сокета.
+Requires=raspd.service
+
+[Service]
+Type=simple
+# Тот же пользователь, что и у raspd, — иначе пришлось бы раздавать права на
+# сокет через дополнительную группу.
+User=rasp
+Group=rasp
+EnvironmentFile=/etc/rasp/rasp.env
+EnvironmentFile=/etc/rasp/bot.env
+ExecStart=/usr/local/bin/botd
+Restart=always
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+
+MemoryMax=128M
+MemorySwapMax=0
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

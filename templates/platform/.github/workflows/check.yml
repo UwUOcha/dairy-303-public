@@ -1,0 +1,42 @@
+name: check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: make all
+      - run: go test -race ./...
+      - run: docker compose config --quiet
+  propose:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/platform-')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Open a platform update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          existing=$(gh pr list --head "$BRANCH" --base main --state open --json number --jq 'length')
+          if [ "$existing" = 0 ]; then
+            gh pr create --head "$BRANCH" --base main --title 'Update platform sources' --body 'Prepared platform update. Automated checks passed for this source snapshot. See the file diff for the public changes.'
+          fi

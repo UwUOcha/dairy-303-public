@@ -1,0 +1,82 @@
+name: release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release tag, for example v0.1.0
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: public-release
+  cancel-in-progress: false
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          test -s LICENSE
+          test -s pkg/provider/LICENSE
+          test "$(gh api "repos/$GH_REPO/git/matching-refs/tags/$VERSION" --jq 'length')" = 0
+          make all
+          go test -race ./...
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Image name
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "name=ghcr.io/${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v7
+        id: build
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ inputs.version }}
+          build-args: SOURCE_CODE_URL=https://github.com/${{ github.repository }}/tree/${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+      - name: Publish source release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          IMAGE: ${{ steps.image.outputs.name }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          git archive --format=tar.gz --prefix="platform-$VERSION/" HEAD > "platform-$VERSION.tar.gz"
+          printf 'Version: %s\nCommit: %s\nImage: %s@%s\n' "$VERSION" "$GITHUB_SHA" "$IMAGE" "$DIGEST" > release-info.txt
+          sha256sum "platform-$VERSION.tar.gz" release-info.txt > SHA256SUMS
+          printf 'Universal university schedule platform.\n\nLicense: AGPL-3.0-only; adapter contract library: MIT.\n\nContainer: `%s@%s`\n' "$IMAGE" "$DIGEST" > release-notes.md
+          gh release create "$VERSION" --target "$GITHUB_SHA" --title "$VERSION" --notes-file release-notes.md "platform-$VERSION.tar.gz" release-info.txt SHA256SUMS

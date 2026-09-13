@@ -1,0 +1,45 @@
+[Unit]
+Description=демон расписания (raspd)
+Documentation=https://github.com/UwUOcha/dairy-303
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rasp
+Group=rasp
+EnvironmentFile=/etc/rasp/rasp.env
+ExecStart=/usr/local/bin/raspd
+Restart=always
+RestartSec=5s
+
+# /run/rasp для сокета и /var/lib/rasp для базы создаёт systemd — каталоги
+# получают нужного владельца сами, без ручного chown при установке.
+RuntimeDirectory=rasp
+RuntimeDirectoryMode=0750
+StateDirectory=rasp
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/rasp
+
+# Мониторинг по средствам: логи в journald, перезапуск демоном инициализации.
+# Prometheus с Grafana съели бы больше памяти, чем весь сервис.
+StandardOutput=journal
+StandardError=journal
+
+# Потолок памяти с большим запасом: демон живёт в 40–80 МБ, всплеск бывает
+# только на ночном разборе JSON.
+MemoryMax=256M
+MemorySwapMax=0
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

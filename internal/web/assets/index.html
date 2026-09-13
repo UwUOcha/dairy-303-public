@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#f6f7f4" />
+    <meta name="description" content="{{description}}" />
+    <meta name="app-config" content="{{config}}" />
+    <meta name="color-scheme" content="light dark" />
+    <title>{{title}}</title>
+    <link rel="canonical" href="{{canonical}}" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="{{app_name}}" />
+    <meta property="og:locale" content="ru_RU" />
+    <meta property="og:title" content="{{title}}" />
+    <meta property="og:description" content="{{description}}" />
+    <meta property="og:url" content="{{canonical}}" />
+    <meta property="og:image" content="{{origin}}/og.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="{{app_name}} — расписание {{university}}: неделя целиком, окна, преподаватели"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="{{title}}" />
+    <meta name="twitter:description" content="{{description}}" />
+    <meta name="twitter:image" content="{{origin}}/og.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/app-icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/app-icon-192.png" />
+    <link rel="stylesheet" href="/app.css" />
+    <script src="/theme.js"></script>
+    <script type="module" src="/app.js"></script>
+  <link rel="stylesheet" href="/profile.css"></head>
+  <body>
+    <a class="skip" href="#main">К расписанию</a>
+    <div id="app">
+      <main class="boot">
+        <span class="brand-symbol">{{web_mark}}</span>
+        <h1>{{app_name}}</h1>
+        <p>Загружаем ваше расписание…</p>
+      </main>
+    </div>
+    <dialog id="picker" aria-labelledby="picker-title"></dialog>
+    <dialog id="detail" aria-labelledby="detail-title"></dialog>
+    <div id="toast" role="status" aria-live="polite"></div>
+    <noscript>Для просмотра расписания включите JavaScript.</noscript>
+    {{preload}}
+  </body>
+</html>

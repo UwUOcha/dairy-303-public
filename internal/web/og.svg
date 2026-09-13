@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" font-family="DejaVu Sans">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c211b"/>
+      <stop offset="1" stop-color="#11150f"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#bg)"/>
+  <circle cx="1150" cy="60" r="230" fill="#b9f466" opacity="0.07"/>
+
+  <rect x="80" y="66" width="84" height="84" rx="24" fill="#b9f466"/>
+  <text x="122" y="126" font-size="53" font-weight="bold" fill="#20231f" text-anchor="middle" letter-spacing="-4">м.</text>
+  <text x="182" y="122" font-size="31" fill="#a6b2a1" letter-spacing="1">Между парами</text>
+
+  <text x="80" y="296" font-size="58" font-weight="bold" fill="#f4f7ef" letter-spacing="-2">Пары — по плану.</text>
+  <text x="80" y="370" font-size="58" font-weight="bold" fill="#b9f466" letter-spacing="-2">Время — для себя.</text>
+
+  <text x="80" y="442" font-size="27" fill="#a6b2a1">Расписание вуза: неделя целиком, окна,</text>
+  <text x="80" y="480" font-size="27" fill="#a6b2a1">преподаватели и общее свободное время.</text>
+
+  <text x="80" y="551" font-size="24" fill="#79856f">Сайт, боты в Telegram и ВКонтакте — расписание одно.</text>
+
+  <g transform="translate(796,92)">
+    <rect x="0" y="0" width="96" height="88" rx="14" fill="#eee9fc"/>
+    <rect x="0" y="100" width="96" height="22" rx="9" fill="#2b3129"/>
+    <rect x="0" y="134" width="96" height="88" rx="14" fill="#e6eefb"/>
+    <rect x="0" y="234" width="96" height="112" rx="14" fill="#fcf0df"/>
+    <rect x="0" y="358" width="96" height="88" rx="14" fill="#eaf4df"/>
+
+    <rect x="114" y="0" width="96" height="22" rx="9" fill="#2b3129"/>
+    <rect x="114" y="34" width="96" height="88" rx="14" fill="#e6eefb"/>
+    <rect x="114" y="134" width="96" height="88" rx="14" fill="#fcf0df"/>
+    <rect x="114" y="234" width="96" height="112" rx="14" fill="#eee9fc"/>
+    <rect x="114" y="358" width="96" height="22" rx="9" fill="#2b3129"/>
+
+    <rect x="228" y="0" width="96" height="88" rx="14" fill="#fcf0df"/>
+    <rect x="228" y="100" width="96" height="122" rx="14" fill="#eee9fc"/>
+    <rect x="228" y="234" width="96" height="22" rx="9" fill="#2b3129"/>
+    <rect x="228" y="268" width="96" height="78" rx="14" fill="#e6eefb"/>
+    <rect x="228" y="358" width="96" height="88" rx="14" fill="#eaf4df"/>
+  </g>
+</svg>

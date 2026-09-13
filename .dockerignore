@@ -1,0 +1,23 @@
+# В контекст сборки уезжают только исходники: секретам, базе и готовым
+# бинарям там делать нечего.
+.git
+.gitignore
+bin/
+dist/
+run/
+*.db
+*.db-wal
+*.db-shm
+.env
+*.env
+!deploy/*.env.example
+Dockerfile
+.dockerignore
+compose.yaml
+deploy/*.service
+*.md
+
+local/
+adapters/*/ops/
+__pycache__/
+*.pyc

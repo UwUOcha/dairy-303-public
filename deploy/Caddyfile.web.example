@@ -1,0 +1,13 @@
+# WEB_PUBLIC_URL в webd должен точно совпадать с этим HTTPS origin.
+# webd доступен только из сети Caddy, порт на хост НЕ публикуется.
+schedule.example.org {
+    encode zstd gzip
+    request_body {
+        max_size 4KB
+    }
+    header Strict-Transport-Security "max-age=31536000"
+    reverse_proxy webd:8306 {
+        header_up X-Forwarded-For {remote_host}
+        header_up -X-Real-IP
+    }
+}

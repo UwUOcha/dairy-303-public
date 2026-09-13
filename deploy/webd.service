@@ -1,0 +1,30 @@
+[Unit]
+Description=студенческий сайт «Между парами»
+After=network-online.target raspd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=rasp
+Group=rasp
+EnvironmentFile=/etc/rasp/web.env
+EnvironmentFile=-/etc/rasp/admin.env
+StateDirectory=admin
+ReadWritePaths=/var/lib/admin
+ExecStart=/usr/local/bin/webd
+Restart=on-failure
+RestartSec=5s
+MemoryMax=192M
+MemorySwapMax=0
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

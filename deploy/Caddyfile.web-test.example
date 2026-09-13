@@ -1,0 +1,13 @@
+# Фрагмент для корня домена внутри существующего блока сайта Caddy.
+# Существующий handle /admin* оставьте перед этим блоком, с его защитой.
+# Замените 203.0.113.10/32 на разрешённый внешний IPv4. Caddy должен принимать
+# соединения непосредственно от посетителя, без CDN/прокси перед ним.
+handle {
+    @blocked not remote_ip 203.0.113.10/32
+    header Cache-Control "private, no-store"
+    respond @blocked "Access restricted during testing." 403
+    reverse_proxy webd:8306 {
+        header_up X-Forwarded-For {remote_host}
+        header_up -X-Real-IP
+    }
+}

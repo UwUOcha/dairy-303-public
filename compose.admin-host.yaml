@@ -1,0 +1,10 @@
+# Optional host resource metrics for the integrated admin panel.
+# docker compose -f compose.yaml -f compose.admin-host.yaml up -d
+services:
+  webd:
+    environment:
+      ADMIN_PROC: /host/proc
+      ADMIN_DISK: /host/disk
+    volumes:
+      - /proc:/host/proc:ro
+      - /:/host/disk:ro

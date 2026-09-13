@@ -1,0 +1,96 @@
+name: rasp
+
+x-core: &core
+  image: ${CORE_IMAGE:-university-schedule:local}
+  build: .
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  tmpfs: ["/tmp:rw,noexec,nosuid,nodev,size=64m"]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+x-profile: &profile
+  RASP_PROFILE: /etc/rasp/profile.json
+  RASP_SOCKET: /run/rasp/api.sock
+
+services:
+  adapter:
+    image: ${ADAPTER_IMAGE:-university-adapter-json:local}
+    build:
+      context: .
+      dockerfile: examples/adapter-json/Dockerfile
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      ADAPTER_TOKEN: ${PROVIDER_TOKEN:-}
+    mem_limit: 128m
+
+  raspd:
+    <<: *core
+    command: ["/usr/local/bin/raspd"]
+    environment:
+      <<: *profile
+      RASP_DB: /var/lib/rasp/schedule.db
+      PROVIDER_URL: http://adapter:8310
+      PROVIDER_TOKEN: ${PROVIDER_TOKEN:-}
+      RASP_IMPORT_LEGACY_IDS: ${RASP_IMPORT_LEGACY_IDS:-false}
+    env_file:
+      - path: deploy/core.env
+        required: false
+    volumes:
+      - db:/var/lib/rasp
+      - sock:/run/rasp
+      - ${RASP_PROFILE_FILE:-./profiles/example.json}:/etc/rasp/profile.json:ro
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/raspd", "-health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  webd:
+    <<: *core
+    command: ["/usr/local/bin/webd"]
+    environment:
+      <<: *profile
+      WEB_LISTEN: :8306
+      WEB_PUBLIC_URL: ${WEB_PUBLIC_URL:-}
+      ADMIN_DB: /var/lib/admin/admin.db
+      ADMIN_PROC: /proc
+      ADMIN_DISK: /var/lib/admin
+    env_file:
+      - path: deploy/admin.env
+        required: false
+    volumes:
+      - sock:/run/rasp:ro
+      - admin_db:/var/lib/admin
+      - ${RASP_PROFILE_FILE:-./profiles/example.json}:/etc/rasp/profile.json:ro
+    ports: ["127.0.0.1:8306:8306"]
+    depends_on:
+      raspd: {condition: service_healthy}
+    mem_limit: 192m
+
+  botd:
+    <<: *core
+    profiles: [bots]
+    command: ["/usr/local/bin/botd"]
+    env_file: [deploy/bot.env]
+    environment: *profile
+    volumes:
+      - sock:/run/rasp:ro
+      - ${RASP_PROFILE_FILE:-./profiles/example.json}:/etc/rasp/profile.json:ro
+    depends_on:
+      raspd: {condition: service_healthy}
+    mem_limit: 128m
+
+
+volumes:
+  db:
+  sock:
+  admin_db:

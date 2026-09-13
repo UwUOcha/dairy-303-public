@@ -1,0 +1,13 @@
+{
+ "source": "example-university",
+ "timezone": "UTC",
+ "departments": [{"id":"faculty:science","name":"Факультет наук"}],
+ "groups": [{"id":"group:alpha","name":"Альфа","department_id":"faculty:science","course":1,"active":true},{"id":"group:beta","name":"Бета","department_id":"faculty:science","course":1,"active":true}],
+ "teachers": [{"id":"person:ada","name":"Анна Примерова","full_name":"Анна Примерова","departments":["Математика"]}],
+ "subgroups": {"group:alpha":[{"id":"alpha:one","name":"1"}]},
+ "weekly_lessons": [
+  {"id":"math:alpha","group_id":"group:alpha","weekday":1,"start":"09:15","end":"10:35","subject":"Математика","kind":"Лекция","room":"Кампус А, 101","teachers":[{"id":"person:ada","name":"Анна Примерова"}]},
+  {"id":"lab:alpha","group_id":"group:alpha","weekday":3,"start":"13:10","end":"14:00","subject":"Практикум","kind":"Лабораторная","subgroup_id":"alpha:one","audience":"subgroup","room":"Лаборатория 2"},
+  {"id":"math:beta","group_id":"group:beta","weekday":2,"start":"10:10","end":"11:25","subject":"Математика","kind":"Лекция","room":"Кампус Б, 202","teachers":[{"id":"person:ada","name":"Анна Примерова"}]}
+ ]
+}

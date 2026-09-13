@@ -1,0 +1,19 @@
+# Build artifacts
+/bin/
+/dist/
+
+# Local runtime state
+*.db
+*.db-wal
+*.db-shm
+/run/
+
+# Secrets
+.env
+*.env
+
+# Installation-only files and local notes
+/local/
+/profiles/local*.json
+__pycache__/
+*.pyc

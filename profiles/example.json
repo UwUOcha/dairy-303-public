@@ -1,0 +1,10 @@
+{
+ "app_name": "Моё расписание",
+ "university": "Пример университета",
+ "location_label": "Учебный кампус",
+ "source_name": "Учебный отдел",
+ "timezone": "UTC",
+ "term_starts": ["01-01", "05-01", "09-01"],
+ "access": "public",
+ "accent": "#4f6656"
+}

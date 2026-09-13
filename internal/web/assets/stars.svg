@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1000" viewBox="0 0 1440 1000">
+  <!-- Большое нерегулярное поле: несколько близких звёзд и далёкая пыль.
+       Прозрачность задана в рисунке; карточки лежат на чистой подложке. -->
+  <defs>
+    <path id="star" d="M-2-28 Q0-32 3-26 L10-10 28-8 Q32-7 28-3 L15 9 18 27 Q18 31 14 28 L-2 18-20 28 Q-24 30-22 25 L-17 5-30-8 Q-33-11-28-11 L-10-12Z"/>
+    <path id="soft-star" d="M1-27 Q3-30 5-24 L11-9 28-5 Q32-4 27 0 L14 11 15 28 Q15 32 11 28 L-4 18-21 24 Q-25 26-22 21 L-17 3-28-11 Q-31-15-25-13 L-8-12Z"/>
+    <!-- Внутренняя линия слегка смещена и нарисована заново: заливка
+         остаётся и снаружи линии, и внутри, как под следом карандаша. -->
+    <path id="inner" d="M1-20 Q3-21 5-16 L8-7 21-5 Q23-4 20-2 L10 6 12 19 Q12 22 9 20 L-2 12-15 20 Q-17 21-16 17 L-12 3-22-7 Q-24-8-20-8 L-7-8Z"/>
+    <g id="drawn" fill="currentColor">
+      <use href="#star" fill-opacity=".12"/>
+      <use href="#inner" fill="none" stroke="currentColor" stroke-opacity=".3" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <g id="washed" fill="currentColor">
+      <use href="#soft-star" fill-opacity=".13"/>
+      <use href="#soft-star" fill="none" stroke="currentColor" stroke-opacity=".16" stroke-width=".8"/>
+    </g>
+    <path id="glint" d="M0-8 Q1-1 7 0 Q1 1 0 8 Q-1 1-7 0 Q-1-1 0-8Z"/>
+  </defs>
+  <g color="#b99be9">
+    <use href="#drawn" transform="translate(745 100) rotate(-18) scale(1.15)"/>
+    <use href="#washed" transform="translate(1383 389) rotate(22) scale(1.35)"/>
+    <use href="#drawn" transform="translate(326 837) rotate(12) scale(.9)"/>
+    <use href="#washed" transform="translate(1120 913) rotate(-26) scale(.65)"/>
+  </g>
+  <g color="#70c9c7">
+    <use href="#washed" transform="translate(1070 247) rotate(28) scale(.55)"/>
+    <use href="#drawn" transform="translate(120 605) rotate(-15) scale(.85)"/>
+    <use href="#drawn" transform="translate(842 742) rotate(10) scale(.7)"/>
+  </g>
+  <g color="#df9ebf">
+    <use href="#washed" transform="translate(440 334) rotate(-32) scale(.55)"/>
+    <use href="#drawn" transform="translate(1234 665) rotate(16) scale(.9)"/>
+    <use href="#washed" transform="translate(589 953) rotate(-8) scale(.5)"/>
+  </g>
+  <g fill="#c5badc" opacity=".25">
+    <use href="#glint" transform="translate(381 137) scale(.65)"/>
+    <use href="#glint" transform="translate(1202 81) scale(.8)"/>
+    <use href="#glint" transform="translate(662 526) scale(.5)"/>
+    <use href="#glint" transform="translate(1318 850) scale(.65)"/>
+    <use href="#glint" transform="translate(55 905) scale(.6)"/>
+  </g>
+  <g fill="#c7c4de" opacity=".23">
+    <circle cx="91" cy="78" r="1"/><circle cx="216" cy="205" r="1.3"/>
+    <circle cx="521" cy="61" r="1"/><circle cx="651" cy="203" r="1.1"/>
+    <circle cx="915" cy="44" r="1.2"/><circle cx="1007" cy="139" r=".8"/>
+    <circle cx="1322" cy="203" r="1"/><circle cx="1413" cy="57" r=".8"/>
+    <circle cx="65" cy="343" r="1.1"/><circle cx="287" cy="446" r=".8"/>
+    <circle cx="564" cy="398" r="1.2"/><circle cx="780" cy="311" r=".8"/>
+    <circle cx="917" cy="460" r="1"/><circle cx="1188" cy="376" r="1.2"/>
+    <circle cx="1376" cy="558" r=".8"/><circle cx="358" cy="604" r="1.2"/>
+    <circle cx="514" cy="727" r=".8"/><circle cx="729" cy="647" r="1"/>
+    <circle cx="1052" cy="591" r=".8"/><circle cx="966" cy="832" r="1.1"/>
+    <circle cx="207" cy="778" r=".8"/><circle cx="411" cy="957" r="1"/>
+    <circle cx="773" cy="902" r="1.2"/><circle cx="1259" cy="964" r=".8"/>
+  </g>
+</svg>

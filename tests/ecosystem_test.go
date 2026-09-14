@@ -49,7 +49,8 @@ func TestPythonAdapterFeedsRealCoreWebsiteAndBot(t *testing.T) {
 	base := fmt.Sprintf("http://127.0.0.1:%d", port)
 	ready := false
 	client := &http.Client{Timeout: 200 * time.Millisecond}
-	for i := 0; i < 100; i++ {
+	// A cold CI runner can take several seconds to start the interpreter.
+	for deadline := time.Now().Add(15 * time.Second); time.Now().Before(deadline); {
 		res, e := client.Get(base + "/health")
 		if e == nil {
 			res.Body.Close()

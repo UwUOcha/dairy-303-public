@@ -32,8 +32,33 @@ func TestReplacementChainContinuesUntilUsersReachDestination(t *testing.T) {
 	}
 }
 
+func TestSettledReplacementRechecksUsersOnLaterImport(t *testing.T) {
+	ctx := context.Background()
+	db := openTest(t)
+	apply := func() {
+		t.Helper()
+		if err := db.tx(ctx, func(tx *sql.Tx) error { return applyGroupReplacements(ctx, tx) }); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.tx(ctx, func(tx *sql.Tx) error {
+		return saveGroupReplacements(ctx, tx, []importdata.Replacement{{From: 1, To: 2}})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	apply() // No users: this rule is skipped, but must not be retired or cached.
+	if err := db.SaveUser(ctx, User{Platform: "tg", ExtID: "new", GroupID: 1}); err != nil {
+		t.Fatal(err)
+	}
+	apply()
+	u, err := db.User(ctx, "tg", "new")
+	if err != nil || u.GroupID != 2 {
+		t.Fatalf("new user left in a previously empty source: %+v %v", u, err)
+	}
+}
+
 // Models the common month-import case: hundreds of persisted replacement rules,
-// with all users already migrated. Work must stop after one unchanged pass.
+// with all users already migrated. Rules without users should need no per-rule SQL.
 func BenchmarkSettledGroupReplacements(b *testing.B) {
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(b.TempDir(), "replacements.db"))

@@ -18,7 +18,7 @@ func saveGroupReplacements(ctx context.Context, tx *sql.Tx, rs []importdata.Repl
 	return nil
 }
 func applyGroupReplacements(ctx context.Context, tx *sql.Tx) error {
-	rows, e := tx.QueryContext(ctx, `SELECT value FROM meta WHERE key LIKE 'group_replacement:%'`)
+	rows, e := tx.QueryContext(ctx, `SELECT value FROM meta WHERE key GLOB 'group_replacement:*'`)
 	if e != nil {
 		return e
 	}
@@ -41,10 +41,36 @@ func applyGroupReplacements(ctx context.Context, tx *sql.Tx) error {
 	if e != nil {
 		return e
 	}
+	if len(rs) == 0 {
+		return nil
+	}
+	// Most imports have no users left in any replacement source. Read their
+	// groups once instead of executing three statements for every settled rule.
+	rows, e = tx.QueryContext(ctx, `SELECT DISTINCT group_id FROM users`)
+	if e != nil {
+		return e
+	}
+	occupied := map[int64]bool{}
+	for rows.Next() {
+		var group int64
+		if e = rows.Scan(&group); e != nil {
+			rows.Close()
+			return e
+		}
+		occupied[group] = true
+	}
+	e = rows.Err()
+	rows.Close()
+	if e != nil {
+		return e
+	}
 	// Iterate to resolve chains regardless of the order of external IDs.
 	for range rs {
 		var moved int64
 		for _, r := range rs {
+			if !occupied[r.From] {
+				continue
+			}
 			var ready bool
 			if e = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM meta WHERE key=?) OR EXISTS(SELECT 1 FROM subgroups WHERE group_id=?)`, fmt.Sprintf("subgroups_ready:%d", r.To), r.To).Scan(&ready); e != nil {
 				return e
@@ -74,6 +100,11 @@ func applyGroupReplacements(ctx context.Context, tx *sql.Tx) error {
 				return err
 			}
 			moved += count
+			if count > 0 {
+				// A later rule (or pass) must see users arriving in this group.
+				// Keep the source marked too: subgroup imports can defer some users.
+				occupied[r.To] = true
+			}
 		}
 		// Once a full pass moves nobody, no remaining chain can advance.
 		// Most month imports have no affected users at all; repeating every

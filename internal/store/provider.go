@@ -60,6 +60,16 @@ func (db *DB) ProviderID(ctx context.Context, source, kind, external string, leg
 // concurrent imports cannot allocate the same ID or race on an external identity.
 func (db *DB) ProviderIDs(ctx context.Context, source string, keys []ProviderIdentity, legacy bool) (map[ProviderIdentity]int64, error) {
 	ids := make(map[ProviderIdentity]int64, len(keys))
+	if len(keys) == 0 {
+		return ids, nil
+	}
+	// A snapshot can include the entire catalog. Prepare once for the batch,
+	// rather than parsing the same SQL for every external identity.
+	lookup, err := db.r.PrepareContext(ctx, `SELECT internal_id FROM provider_ids WHERE source=? AND kind=? AND external_id=?`)
+	if err != nil {
+		return nil, err
+	}
+	defer lookup.Close()
 	var missing []ProviderIdentity
 	seen := map[ProviderIdentity]bool{}
 	for _, key := range keys {
@@ -72,7 +82,7 @@ func (db *DB) ProviderIDs(ctx context.Context, source string, keys []ProviderIde
 			continue
 		}
 		var id int64
-		err := db.r.QueryRowContext(ctx, `SELECT internal_id FROM provider_ids WHERE source=? AND kind=? AND external_id=?`, source, key.Kind, key.External).Scan(&id)
+		err := lookup.QueryRowContext(ctx, source, key.Kind, key.External).Scan(&id)
 		if err == nil {
 			ids[key] = id
 		} else if err == sql.ErrNoRows {
@@ -84,7 +94,7 @@ func (db *DB) ProviderIDs(ctx context.Context, source string, keys []ProviderIde
 	if len(missing) == 0 {
 		return ids, nil
 	}
-	err := db.tx(ctx, func(tx *sql.Tx) error {
+	err = db.tx(ctx, func(tx *sql.Tx) error {
 		for _, key := range missing {
 			id, err := providerID(ctx, tx, source, key.Kind, key.External, legacy)
 			if err != nil {

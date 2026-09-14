@@ -39,9 +39,16 @@ func saveImportMetadata(ctx context.Context, tx *sql.Tx, ms importdata.MonthSche
 	if e := applyGroupReplacements(ctx, tx); e != nil {
 		return e
 	}
-	for id, hidden := range ms.Visibility {
-		if _, e := tx.ExecContext(ctx, `UPDATE groups SET shadowed=? WHERE id=?`, hidden, id); e != nil {
+	if len(ms.Visibility) > 0 {
+		update, e := tx.PrepareContext(ctx, `UPDATE groups SET shadowed=? WHERE id=? AND shadowed<>?`)
+		if e != nil {
 			return e
+		}
+		defer update.Close()
+		for id, hidden := range ms.Visibility {
+			if _, e := update.ExecContext(ctx, hidden, id, hidden); e != nil {
+				return e
+			}
 		}
 	}
 	return nil

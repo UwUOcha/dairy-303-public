@@ -817,7 +817,8 @@ test("a shared date link opens that day and stays in the address bar", async () 
   const app = await appHarness({ query: `?group=39&date=${date}` });
   const html = app.element("#app").innerHTML;
   assert.match(html, /day-tabs/);
-  assert.match(html, new RegExp(`data-date="${date}" class="active"`));
+  // Во вторник выбранный день также отмечен как сегодняшний.
+  assert.match(html, new RegExp(`data-date="${date}" class="active(?: today)?"`));
   assert.ok(app.location.search.includes(`date=${date}`));
   // Мусор в параметре не переключает вид и не ломает неделю.
   const junk = await appHarness({ query: "?group=39&date=не-дата" });

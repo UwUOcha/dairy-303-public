@@ -2,6 +2,7 @@ package providerclient_test
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/UwUOcha/dairy-303-public/internal/importdata"
 	"github.com/UwUOcha/dairy-303-public/internal/providerclient"
@@ -17,6 +18,7 @@ import (
 )
 
 type fixture struct {
+	decorate func(*provider.Snapshot)
 	source   string
 	complete bool
 	empty    bool
@@ -39,6 +41,9 @@ func (f *fixture) Schedule(_ context.Context, g, a, b string) (provider.Snapshot
 			id = "shared:" + a
 		}
 		v.Lessons = []provider.Lesson{{ID: id, Date: a, Start: f.start, End: "11:20", SlotID: "slot-1", Subject: "Algorithms", Kind: "lecture", AnchorGroupID: g, Teachers: []provider.Teacher{{ID: "person:1", Name: "Same Person"}, {ID: "person:2", Name: "Same Person"}}}}
+	}
+	if f.decorate != nil {
+		f.decorate(&v)
 	}
 	return v, nil
 }
@@ -222,5 +227,56 @@ func TestLegacyIDsRequireOptInAndStayStable(t *testing.T) {
 	newID, e := db.ProviderID(ctx, "legacy", "group", "uuid:new", false)
 	if e != nil || newID <= 545 {
 		t.Fatal("new ID collided", newID, e)
+	}
+}
+
+func TestUnusedAudienceNamesDoNotAllocateLocalIdentities(t *testing.T) {
+	var nextGroup, nextSubgroup int64
+	for _, extraNames := range []bool{false, true} {
+		f, db, client, _, _ := setup(t)
+		f.decorate = func(v *provider.Snapshot) {
+			v.Lessons[0].Audience = "combined"
+			v.Lessons[0].SubgroupID = "foreign:sub"
+			v.Lessons[0].GroupIDs = []string{"alpha"}
+			v.Lessons[0].SubgroupIDs = []string{"foreign:sub"}
+			v.GroupNames = map[string]string{"alpha": "Своя группа", "beta": "Другая группа"}
+			v.SubgroupNames = map[string]string{"foreign:sub": "Чужая подгруппа"}
+			// Явное решение адаптера должно применяться и к группе вне занятий.
+			v.Visibility = map[string]bool{"beta": true}
+			if extraNames {
+				for i := range 2000 {
+					v.GroupNames[fmt.Sprint("unused-group:", i)] = "Лишняя группа"
+					v.SubgroupNames[fmt.Sprint("unused-subgroup:", i)] = "Лишняя подгруппа"
+				}
+			}
+		}
+		ctx := context.Background()
+		y, m, _, _ := period()
+		ms, err := client.Month(ctx, groupID(t, db, "alpha"), y, m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ms.Lessons[0].SubgroupID == 0 || len(ms.Subgroups) != 1 || ms.Subgroups[0].ID == ms.Lessons[0].SubgroupID {
+			t.Fatal("потеряна принадлежность чужой подгруппы", ms)
+		}
+		if _, err := db.SaveMonth(ctx, ms); err != nil {
+			t.Fatal(err)
+		}
+		groups, err := db.SearchGroups(ctx, "same", 10)
+		if err != nil || len(groups) != 1 || groups[0].ID != ms.GroupID {
+			t.Fatal("не применена явная видимость", groups, err)
+		}
+		group, err := db.ProviderID(ctx, "independent", "group", "next-group", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		subgroup, err := db.ProviderID(ctx, "independent", "subgroup", "next-subgroup", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if extraNames && (group != nextGroup || subgroup != nextSubgroup) {
+			t.Fatalf("лишние словари выделили локальные ID: группа %d → %d, подгруппа %d → %d", nextGroup, group, nextSubgroup, subgroup)
+		}
+		nextGroup, nextSubgroup = group, subgroup
 	}
 }

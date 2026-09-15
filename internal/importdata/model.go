@@ -88,7 +88,5 @@ type MonthSchedule struct {
 	LessonTimes []LessonTime
 	Workdays    map[int][]int64
 
-	Subgroups     []Subgroup
-	GroupNames    map[int64]string
-	SubgroupNames map[int64]string
+	Subgroups []Subgroup
 }

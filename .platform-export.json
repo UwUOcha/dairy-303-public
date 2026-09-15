@@ -29,7 +29,7 @@
     "deploy/raspd.service": "fc6c7b1bd30c6af35e96f00eada5d36da4a0a7c0bd7bd6a74bc71b3b081c4e32",
     "deploy/web.env.example": "18ce73563c43b9deb3de37b68a9d4ef72145645c252a6073c0fb0004a7a49267",
     "deploy/webd.service": "77a8cb2b76a2a1bbd18161dd019948c3ac6483660d2e6f7b5844e3fabb93a62d",
-    "docs/ADAPTERS.md": "5eb8285e3d3355268c0c60ce5ae7e0a7290ba2af2cd853ec39ad96b234592441",
+    "docs/ADAPTERS.md": "69880d0fe641ceda8d5ac2e8c632153e1ec757dbc48f02d4c251b4014d3c17ef",
     "docs/ADMIN.md": "c18d681583441a5cebad50269c191af9812da1090d625c94b43a19523a3db694",
     "docs/ARCHITECTURE.md": "a88ccdf463a49f78977c5bc8e5613003f3216be79d4de39d1b36fffacf08b663",
     "docs/BETA.md": "26ddea5607438b413c130f457fd16741ef578d57afaa5add84d0f618c6859da8",
@@ -100,15 +100,15 @@
     "internal/botcore/webauth.go": "34f46ef8856d9c855fe7f1eeb75912fab80af8a8892ae46b2fae046dc59a978a",
     "internal/buildinfo/info.go": "8166fae70d95648de1b1000161a92c445432f2069ae11aef021746e5b726f1b1",
     "internal/config/config.go": "ab093953d09df756bd5a76e8a84eb29fb3b1e8db845831d38df46c18889db887",
-    "internal/importdata/model.go": "0af49d4d515fa27fa59a3b4754cab485b3a6051f241204a3fc3815ef07e6699b",
+    "internal/importdata/model.go": "a21058018ef2ec0336bce28bee0884d2a944f684c3bd946529e1c2e57cf0e88b",
     "internal/importdata/source.go": "306c9382c5a43abfe32c12651da9003fbfa2a8a159b245b779f70a458bdd4b67",
     "internal/importdata/staff.go": "1a9c722d7f3e6fc427f244b432fb9b7f42f25441f8ef99b1fd319681676efd11",
     "internal/logbuf/logbuf.go": "85c88bd486ef2de7149d66d9caa4ce289ef5a6672bdb421ee0be95bf67188d0d",
     "internal/logbuf/logbuf_test.go": "1dfc59e33576b4cea8b07c2b4868dbe7aff41091e01c104c495f48068a18ae1e",
     "internal/profile/profile.go": "e85db14118fcf75976b2639172a8905929137505e0b1d576bde983ccc45c08e5",
     "internal/profile/profile_test.go": "0e531a55049714ab437e3c2ba79dbc3759e89af04be1d3cdd29166aba8b4c442",
-    "internal/providerclient/client.go": "6a414607aa86140ebb0be9fc1815c5821ef1734f0cc95637fe91f1222941ec4d",
-    "internal/providerclient/client_test.go": "6d71fa445107633ca2646820a5dc3e40ffdf9b4deb4d284091c18a5da7b72e7e",
+    "internal/providerclient/client.go": "6330a0f7b0bfba5bc80c81985035249eeb94627cc86ff2fa39329c40f9e6c69a",
+    "internal/providerclient/client_test.go": "b2acc1179440861bf533213a2fc4574d3645e549390354208241c12a0db54dcd",
     "internal/providerclient/metadata_test.go": "597c9fece25182f629108d1c9823192380b058520fc64426a2deee37e6d5f9c1",
     "internal/schedule/build.go": "f9a74bd0800f55bd8cdfe10fa82949a68d0dc0f056f83fe16f5af613941bdfd1",
     "internal/schedule/build_test.go": "ac8b7691f6572bf47a6915326408339bc7530fb6d5da23abd58207fb7859d20d",
@@ -236,6 +236,6 @@
     "tests/ecosystem_test.go": "f3296962eb6c65d407c8180d3d9220a3238e7bb4e1ea3ecbe2a5bd0952b70bc4",
     "tests/pwa.test.mjs": "5a9eb3358a2a7f944a7e81fd89fcef5c3fdae00ac6e0bdf5e20a164b7e8012a9",
     "tests/test_export_platform.py": "17a2a537ef71938e90975d6c62eebbc359d4f0040ecad5b31aaccbcc1f27021b",
-    "tests/web.test.mjs": "99c392ce9fc2047aaee26efb4ccefe66e6d62ff03ed6e9a88bdae7dc133f1a3b"
+    "tests/web.test.mjs": "b5a857ecafa9c914914e55af9a9d661853814c31f108455e043d783787181c91"
   }
 }

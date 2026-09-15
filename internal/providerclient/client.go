@@ -117,12 +117,8 @@ func (c *Client) Month(ctx context.Context, group int64, year, month int) (out i
 	for _, g := range v.Subgroups {
 		m.add("subgroup", g.ID)
 	}
-	for k := range v.GroupNames {
-		m.add("group", k)
-	}
-	for k := range v.SubgroupNames {
-		m.add("subgroup", k)
-	}
+	// Словари имён уже проверены HTTP-клиентом; хранилище их не использует.
+	// Локальные ID нужны только участникам занятий и явным изменениям видимости.
 	for k := range v.Visibility {
 		m.add("group", k)
 	}
@@ -162,18 +158,12 @@ func (c *Client) Month(ctx context.Context, group int64, year, month int) (out i
 		return out, e
 	}
 
-	out = importdata.MonthSchedule{GroupID: group, Year: year, Month: month, Workdays: map[int][]int64{}, GroupNames: map[int64]string{}, SubgroupNames: map[int64]string{}, Visibility: map[int64]bool{}, FetchedAt: v.FetchedAt}
+	out = importdata.MonthSchedule{GroupID: group, Year: year, Month: month, Workdays: map[int][]int64{}, Visibility: map[int64]bool{}, FetchedAt: v.FetchedAt}
 	if c.legacy {
 		out.BaselineKey = fmt.Sprintf("provider_baseline:%s:%d:%d:%d", i.Source, group, year, month)
 	}
 	for _, s := range v.Subgroups {
 		out.Subgroups = append(out.Subgroups, importdata.Subgroup{ID: m.id("subgroup", s.ID), Name: s.Name})
-	}
-	for k, n := range v.GroupNames {
-		out.GroupNames[m.id("group", k)] = n
-	}
-	for k, n := range v.SubgroupNames {
-		out.SubgroupNames[m.id("subgroup", k)] = n
 	}
 	for _, d := range v.Workdays {
 		out.Workdays[d] = nil

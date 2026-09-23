@@ -104,7 +104,7 @@ func TestMarkProbedBlocked(t *testing.T) {
 		t.Errorf("очередь заблокировавшего не очищена: %+v", items)
 	}
 
-	stats, err := db.Stats(ctx, time.Now())
+	stats, err := db.Stats(ctx, time.Now(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestMarkProbedReturn(t *testing.T) {
 	if !u.Notify {
 		t.Error("вернувшийся остался без рассылки, хотя выключали её мы")
 	}
-	stats, err := db.Stats(ctx, time.Now())
+	stats, err := db.Stats(ctx, time.Now(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,7 +189,7 @@ func TestMarkProbedKeepsOwnChoice(t *testing.T) {
 	if got.Notify {
 		t.Error("проверка включила рассылку тому, кто выключил её сам")
 	}
-	stats, err := db.Stats(ctx, time.Now())
+	stats, err := db.Stats(ctx, time.Now(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +211,7 @@ func TestDisableNotifyMarksBlocked(t *testing.T) {
 	if err := db.DisableNotify(ctx, "tg", "1"); err != nil {
 		t.Fatal(err)
 	}
-	stats, err := db.Stats(ctx, time.Now())
+	stats, err := db.Stats(ctx, time.Now(), 0)
 	if err != nil {
 		t.Fatal(err)
 	}

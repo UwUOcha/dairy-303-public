@@ -237,3 +237,61 @@ func TestMenuDelivery(t *testing.T) {
 		})
 	}
 }
+
+// В группе бот не запускает сценарии (core здесь nil — любое обращение
+// уронит тест), на нажатие отвечает подсказкой только нажавшему, а в сам чат
+// пишет один раз, сколько бы сообщений туда ни пришло.
+func TestGroupChatRefusal(t *testing.T) {
+	var calls []string
+	var toast, sent string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Error(err)
+		}
+		defer r.MultipartForm.RemoveAll()
+		method := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		calls = append(calls, method)
+		switch method {
+		case "answerCallbackQuery":
+			toast = r.FormValue("text")
+			io.WriteString(w, `{"ok":true,"result":true}`)
+		case "sendMessage":
+			sent = r.FormValue("text")
+			if r.FormValue("chat_id") != "-100" {
+				t.Errorf("сообщение ушло в чат %s", r.FormValue("chat_id"))
+			}
+			io.WriteString(w, `{"ok":true,"result":{"message_id":1,"chat":{"id":-100,"type":"group"},"date":1}}`)
+		default:
+			t.Errorf("неожиданный вызов %s", method)
+		}
+	}))
+	defer srv.Close()
+	bot, err := tgbot.New("test", tgbot.WithSkipGetMe(), tgbot.WithServerURL(srv.URL))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &Adapter{bot: bot, log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	name := "example_bot"
+	a.username.Store(&name)
+
+	group := models.Chat{ID: -100, Type: "group"}
+	from := &models.User{ID: 7}
+	a.handle(context.Background(), bot, &models.Update{ID: 1, CallbackQuery: &models.CallbackQuery{
+		ID: "q", From: *from, Data: "d:today",
+		Message: models.MaybeInaccessibleMessage{Message: &models.Message{ID: 5, Chat: group}},
+	}})
+	for i := range 3 {
+		a.handle(context.Background(), bot, &models.Update{ID: int64(2 + i),
+			Message: &models.Message{ID: 6 + i, Chat: group, From: from, Text: "/today@example_bot"}})
+	}
+
+	if want := []string{"answerCallbackQuery", "sendMessage"}; strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("вызовы %v, нужно %v", calls, want)
+	}
+	if toast != botcore.GroupChatToast {
+		t.Errorf("подсказка на нажатие: %q", toast)
+	}
+	if !strings.Contains(sent, "https://t.me/example_bot") {
+		t.Errorf("в сообщении нет ссылки в личку: %q", sent)
+	}
+}

@@ -69,7 +69,7 @@ func TestStatsUsers(t *testing.T) {
 	db := openTest(t)
 	seedUsers(t, db)
 
-	st, err := db.Stats(context.Background(), statsNow)
+	st, err := db.Stats(context.Background(), statsNow, 0)
 	if err != nil {
 		t.Fatalf("сбор статистики: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestStatsNewByDayIsContinuous(t *testing.T) {
 	db := openTest(t)
 	seedUsers(t, db)
 
-	st, err := db.Stats(context.Background(), statsNow)
+	st, err := db.Stats(context.Background(), statsNow, 0)
 	if err != nil {
 		t.Fatalf("сбор статистики: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestStatsNewByDayIsContinuous(t *testing.T) {
 func TestStatsEmptyBase(t *testing.T) {
 	db := openTest(t)
 
-	st, err := db.Stats(context.Background(), statsNow)
+	st, err := db.Stats(context.Background(), statsNow, 0)
 	if err != nil {
 		t.Fatalf("статистика пустой базы не должна падать: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestStatsSyncAndOutbox(t *testing.T) {
 		t.Fatalf("очередь: %v", err)
 	}
 
-	st, err := db.Stats(ctx, statsNow)
+	st, err := db.Stats(ctx, statsNow, 0)
 	if err != nil {
 		t.Fatalf("сбор статистики: %v", err)
 	}
@@ -299,7 +299,7 @@ func TestStatsStaleCountsOnlyTrackedMonths(t *testing.T) {
 		}
 	}
 
-	st, err := db.Stats(ctx, statsNow)
+	st, err := db.Stats(ctx, statsNow, 0)
 	if err != nil {
 		t.Fatalf("сбор статистики: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestStatsWebsiteAccountsAndSessions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := db.Stats(ctx, now)
+	got, err := db.Stats(ctx, now, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +365,7 @@ func TestStatsWebsiteAccountsAndSessions(t *testing.T) {
 	if _, err := db.w.Exec(`DELETE FROM web_sessions WHERE platform='tg' AND ext_id='1'`); err != nil {
 		t.Fatal(err)
 	}
-	got, err = db.Stats(ctx, now)
+	got, err = db.Stats(ctx, now, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,11 +375,64 @@ func TestStatsWebsiteAccountsAndSessions(t *testing.T) {
 	if _, err := db.w.Exec(`DELETE FROM web_allowlist WHERE platform='vk' AND ext_id='1'`); err != nil {
 		t.Fatal(err)
 	}
-	got, err = db.Stats(ctx, now)
+	got, err = db.Stats(ctx, now, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Web.SignedIn != 0 || got.Web.Sessions != 0 || got.Web.Allowed != 3 {
 		t.Fatal(got.Web)
+	}
+}
+
+func TestStatsSyncExcludesMonthsBeyondHorizon(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	seedUsers(t, db)
+	now := time.Date(2026, 12, 31, 12, 0, 0, 0, time.UTC)
+	start := time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)
+	for i := -1; i <= 3; i++ {
+		month := start.AddDate(0, i, 0)
+		if _, err := db.w.ExecContext(ctx, `INSERT INTO month_state(group_id,year,month,content_hash,fetched_at,changed_at,lesson_count) VALUES(231,?,?, 'hash',?,?,0)`,
+			month.Year(), int(month.Month()), now.Add(-48*time.Hour).Unix(), now.Unix()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	st, err := db.Stats(ctx, now, 2)
+	if err != nil || st.Sync.Tracked != 3 || st.Sync.MonthsStale != 3 {
+		t.Fatalf("Горизонт: %+v %v", st.Sync, err)
+	}
+	if _, err := db.w.ExecContext(ctx, "UPDATE month_state SET fetched_at=? WHERE year*12+month BETWEEN ? AND ?", now.Unix(), 2026*12+12, 2027*12+2); err != nil {
+		t.Fatal(err)
+	}
+	st, err = db.Stats(ctx, now, 2)
+	if err != nil || st.Sync.MonthsStale != 0 || st.Sync.OldestFetch != now.Unix() {
+		t.Fatalf("Старые месяцы влияют на свежесть: %+v %v", st.Sync, err)
+	}
+}
+
+func TestRegistrationsUseLocalCalendarDays(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	loc, err := time.LoadLocation("Asia/Kolkata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 9, 16, 12, 0, 0, 0, loc)
+	for i, hour := range []int{18, 19} {
+		id := strconv.Itoa(i)
+		if err := db.SaveUser(ctx, User{Platform: "tg", ExtID: id}); err != nil {
+			t.Fatal(err)
+		}
+		at := time.Date(2026, 9, 15, hour, 0, 0, 0, time.UTC)
+		if _, err := db.w.ExecContext(ctx, "UPDATE users SET created_at=? WHERE ext_id=?", at.Unix(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	days, err := db.newByDay(ctx, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if days[len(days)-2].Count != 1 || days[len(days)-1].Count != 1 {
+		t.Fatalf("Дни регистраций: %+v", days)
 	}
 }

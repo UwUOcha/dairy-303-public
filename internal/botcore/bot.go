@@ -1077,7 +1077,7 @@ func (b *Bot) askTime(ctx context.Context, user api.UserResponse, kind string) (
 	if err := b.saveUser(ctx, &user, u); err != nil {
 		return b.unavailable(err), nil
 	}
-	return []Reply{{Text: text, Edit: true, Keyboard: TimeKeyboard(kind, current)}}, nil
+	return []Reply{{Text: strings.ReplaceAll(text, "{{timezone}}", esc(profile.Current().Timezone)), Edit: true, Keyboard: TimeKeyboard(kind, current)}}, nil
 }
 
 // setTimeButton обрабатывает быстрый выбор времени кнопкой.
@@ -1463,18 +1463,28 @@ type Digest struct {
 // Digest собирает сообщение рассылки: утреннее — про сегодня, вечернее — про
 // следующий учебный день.
 //
-// Почему вечером именно «следующий учебный», а не буквально завтра: в субботу
-// вечером человеку нужен понедельник, а «завтра занятий нет» он и без бота
-// знает. Какой день следующий, знает сетка учебных дней — она есть только у
-// raspd, поэтому слово уезжает ему как есть.
+// Вечером ищем ближайший день с занятиями, учитывая подгруппу и пустые
+// учебные дни в сетке.
 func (b *Bot) Digest(ctx context.Context, u store.User, kind store.NotifyKind) (Digest, error) {
-	date := ""
+	var resp api.DayResponse
 	if kind == store.NotifyEvening {
-		date = api.DateNext
-	}
-	resp, err := b.api.Day(ctx, u.GroupID, u.SubgroupID, date)
-	if err != nil {
-		return Digest{}, err
+		next, err := b.api.NextStudyDay(ctx, u.GroupID, u.SubgroupID)
+		if err != nil {
+			return Digest{}, err
+		}
+		if next.Lesson == nil {
+			reply := formatNextStudyDay(next, api.UserResponse{User: u})
+			return Digest{Text: reply.Text, KB: reply.Keyboard,
+				Empty: !next.Missing && !next.Stale, When: "В ближайшие 14 дней"}, nil
+		}
+		resp = api.DayResponse{Context: next.Context, Day: next.Day,
+			Prev: next.Prev, Next: next.Next, Freshness: next.Freshness}
+	} else {
+		var err error
+		resp, err = b.api.Day(ctx, u.GroupID, u.SubgroupID, "")
+		if err != nil {
+			return Digest{}, err
+		}
 	}
 
 	head, when := "🌅 <b>Доброе утро!</b>", "Сегодня"

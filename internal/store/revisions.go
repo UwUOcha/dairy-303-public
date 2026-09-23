@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -133,15 +132,12 @@ func revisionWeek(lessons []schedule.Lesson, from, to string) []schedule.Lesson 
 }
 
 func sameRevisionLessons(a, b []schedule.Lesson) bool {
-	// Preserve ID changes for bot notification compatibility; times matter even when the
-	// university retains the same slot ID. Themes aren't schedule changes.
+	// Дни уведомлений и архив сравнивают одинаковые поля: время занятия,
+	// а не служебный идентификатор слота. Тема не меняет расписание.
 	rows := func(ls []schedule.Lesson) []string {
 		out := make([]string, 0, len(ls))
 		for _, l := range ls {
-			staff := append([]string{}, l.Staff...)
-			sort.Strings(staff)
-			raw, _ := json.Marshal([]any{l.ID, l.Date, l.MinuteFrom, l.MinuteTo, l.Discipline, l.ClassType, l.Classroom, staff, l.SubgroupID, l.Audience, l.AudienceLabel, l.Flags, l.Comments})
-			out = append(out, string(raw))
+			out = append(out, storedRow(l))
 		}
 		return out
 	}

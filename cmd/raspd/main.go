@@ -183,7 +183,7 @@ func run(log *slog.Logger, ring *logbuf.Ring, background bool) error {
 	defer ln.Close()
 
 	apiSrv := api.NewServer(db, sync, loc, cfg.WarnAfter, log)
-	apiSrv.Diagnostics(ring, startedAt)
+	apiSrv.Diagnostics(ring, startedAt, cfg.MonthsAhead)
 
 	srv := &http.Server{
 		Handler:      apiSrv.Handler(),

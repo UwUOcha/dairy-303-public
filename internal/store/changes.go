@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"sort"
 	"strconv"
 	"strings"
@@ -80,8 +81,8 @@ func importRow(l importdata.Lesson) string {
 }
 
 func storedRow(l schedule.Lesson) string {
-	return lessonRow(l.ID, l.Date, l.TimeID, l.Discipline, l.ClassType, l.Classroom,
-		l.Staff, l.SubgroupID, int(l.Audience), l.AudienceLabel, int(l.Flags), l.Comments)
+	return lessonRow(l.ID, l.Date, 0, l.Discipline, l.ClassType, l.Classroom,
+		l.Staff, l.SubgroupID, int(l.Audience), l.AudienceLabel, int(l.Flags), l.Comments) + "\x1f" + strconv.Itoa(l.MinuteFrom) + "\x1f" + strconv.Itoa(l.MinuteTo)
 }
 
 // changedDays сравнивает день за днём то, что лежало в базе, с тем, что
@@ -89,7 +90,7 @@ func storedRow(l schedule.Lesson) string {
 //
 // notBefore отсекает прошедшие дни: правка вчерашней пары новостью не
 // является, и открывать её «до/после» человеку незачем.
-func changedDays(before []schedule.Lesson, after []importdata.Lesson, notBefore string) []ChangedDay {
+func changedDays(before []schedule.Lesson, after []schedule.Lesson, notBefore string) []ChangedDay {
 	was := map[string][]string{}
 	snapshot := map[string][]schedule.Lesson{}
 	for _, l := range before {
@@ -98,7 +99,7 @@ func changedDays(before []schedule.Lesson, after []importdata.Lesson, notBefore 
 	}
 	became := map[string][]string{}
 	for _, l := range after {
-		became[l.Date] = append(became[l.Date], importRow(l))
+		became[l.Date] = append(became[l.Date], storedRow(l))
 	}
 
 	dates := make([]string, 0, len(was)+len(became))
@@ -162,6 +163,9 @@ func saveChangedDays(ctx context.Context, tx *sql.Tx, groupID int64, days []Chan
 		mon := schedule.FormatDate(date.AddDate(0, 0, -(int(date.Weekday())+6)%7))
 		var id int64
 		if err := tx.QueryRowContext(ctx, `SELECT id FROM schedule_revisions WHERE group_id=? AND monday=? ORDER BY id DESC LIMIT 1`, groupID, mon).Scan(&id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
 			return err
 		}
 		raw, err := json.Marshal(struct {
@@ -251,12 +255,20 @@ func (db *DB) PurgeChangedDays(ctx context.Context, olderThan time.Duration, tod
 	if olderThan <= 0 {
 		olderThan = changeDayTTL
 	}
+	date, err := schedule.ParseDate(today)
+	if err != nil {
+		return err
+	}
+	// Неделе с первым числом ещё нужна неизменённая часть прошлого месяца.
+	snapshotFrom := schedule.FormatDate(schedule.MondayOf(date))
 	cutoff := nowFunc().Add(-olderThan).Unix()
 	return db.tx(ctx, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM schedule_revisions WHERE created_at < ?`, nowFunc().Add(-RevisionTTL).Unix()); err != nil {
 			return err
 		}
-		if _, err := tx.ExecContext(ctx, `DELETE FROM meta WHERE (key LIKE 'change_event:%' OR key LIKE 'month_snapshot:%') AND substr(key,-7) < substr(?,1,7)`, today); err != nil {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM meta WHERE
+			(key LIKE 'change_event:%' AND substr(key,-7) < substr(?,1,7))
+			OR (key LIKE 'month_snapshot:%' AND substr(key,-7) < substr(?,1,7))`, today, snapshotFrom); err != nil {
 			return err
 		}
 		_, err := tx.ExecContext(ctx,

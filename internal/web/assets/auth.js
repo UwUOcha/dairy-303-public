@@ -18,13 +18,32 @@ function clearData() {
 clearData();
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 function remember() { try { pending ? sessionStorage.setItem(key, JSON.stringify(pending)) : sessionStorage.removeItem(key); } catch {} }
+// Телеграм по ссылке «?start=» отправляет команду за человека, ВКонтакте — нет.
+// Там ссылка только открывает диалог, а метка «?ref=» доезжает до бота лишь с
+// первым сообщением нового диалога: у того, кто уже пользуется ботом, такого
+// диалога давно нет, и переход выглядит как «ничего не произошло». Поэтому во
+// ВКонтакте ведём человека за руку — команда в буфере, вставить и отправить.
+const steps = {
+  tg: ['Открой Telegram-бота и нажми «Начать» — он пришлёт код.', 'Вернись сюда и введи 8 цифр из сообщения.'],
+  vk: ['Нажми кнопку ниже — команда входа скопируется, откроется диалог с ботом.', 'Вставь команду в диалог и отправь: бот ответит кодом.', 'Вернись сюда и введи 8 цифр из сообщения.'],
+};
+const manualHints = {
+  tg: 'Бот молчит? Скопируй команду входа и отправь её в личном диалоге:',
+  vk: 'Команда входа — её нужно отправить боту в личном диалоге:',
+};
+async function copyCommand() {
+  try { await navigator.clipboard.writeText('/login ' + pending.challenge); return true; } catch { return false; }
+}
 function showChallenge() {
   $('#providers').hidden = true; $('#challenge-view').hidden = false;
   const link = $('#bot-link');
   const base = pending.platform === 'tg' ? installation.telegram_url : installation.vk_url;
   link.hidden = !base;
   if (base) { const url = new URL(base); url.searchParams.set(pending.platform === 'tg' ? 'start' : 'ref', 'web_' + pending.challenge); link.href = url.href; }
-  link.textContent = pending.platform === 'tg' ? 'Открыть Telegram-бота ↗' : 'Открыть VK-бота ↗';
+  link.textContent = pending.platform === 'tg' ? 'Открыть Telegram-бота ↗' : 'Скопировать команду и открыть VK-бота ↗';
+  $('#steps').replaceChildren(...steps[pending.platform].map(text => { const item = document.createElement('li'); item.textContent = text; return item; }));
+  $('#manual-hint').textContent = manualHints[pending.platform];
+  $('#copy-command').textContent = 'Скопировать команду входа';
   $('#manual-command').textContent = '/login ' + pending.challenge;
   $('#code').value = '';
   $('#expiry').textContent = 'Вход действителен 5 минут. Код вводится только в этом браузере.';
@@ -37,7 +56,14 @@ for (const button of document.querySelectorAll('[data-provider]')) button.addEve
   catch (e) { message(e.message); } finally { button.disabled = false; }
 });
 $('#restart').addEventListener('click', () => { pending = null; remember(); $('#providers').hidden = false; $('#challenge-view').hidden = true; message(''); document.querySelector('[data-provider]').focus(); });
-$('#copy-command').addEventListener('click', async () => { try { await navigator.clipboard.writeText('/login ' + pending.challenge); $('#copy-command').textContent = 'Скопировано — отправь боту'; } catch { message('Скопируй команду под кнопкой вручную.'); } });
+// Копируем, не отменяя переход по ссылке: диалог с ботом открывается соседней
+// вкладкой, а команда к этому моменту уже в буфере.
+$('#bot-link').addEventListener('click', async () => {
+  if (pending?.platform !== 'vk') return;
+  if (await copyCommand()) $('#manual-hint').textContent = 'Команда скопирована — вставь её в диалог с ботом и отправь:';
+  else message('Не удалось скопировать команду. Нажми «Скопировать команду входа» ниже или перепиши её вручную.');
+});
+$('#copy-command').addEventListener('click', async () => { if (await copyCommand()) $('#copy-command').textContent = 'Скопировано — отправь боту'; else message('Скопируй команду под кнопкой вручную.'); });
 $('#code').addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 8); });
 $('#code-form').addEventListener('submit', async (event) => {
   event.preventDefault(); if (!pending) return;

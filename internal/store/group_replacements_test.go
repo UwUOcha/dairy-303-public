@@ -85,3 +85,54 @@ func BenchmarkSettledGroupReplacements(b *testing.B) {
 		}
 	}
 }
+
+func TestGroupChangePreservesCorrespondence(t *testing.T) {
+	for _, replacement := range []bool{false, true} {
+		t.Run(fmt.Sprint(replacement), func(t *testing.T) {
+			db := openTest(t)
+			ctx := context.Background()
+			u := User{Platform: "tg", ExtID: "пользователь", GroupID: 1}
+			if err := db.SaveUser(ctx, u); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.tx(ctx, func(tx *sql.Tx) error {
+				for _, kind := range []string{OutboxChange, OutboxAnswer, OutboxFeedback} {
+					if _, err := tx.ExecContext(ctx, "INSERT INTO outbox(platform,ext_id,kind,payload,dedup_key,created_at,next_try_at) VALUES(?,?,?,?,?,?,1)", u.Platform, u.ExtID, kind, "{}", kind, 1); err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			if replacement {
+				if err := db.tx(ctx, func(tx *sql.Tx) error {
+					if err := saveGroupReplacements(ctx, tx, []importdata.Replacement{{From: 1, To: 2}}); err != nil {
+						return err
+					}
+					return applyGroupReplacements(ctx, tx)
+				}); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				u.GroupID = 2
+				if err := db.SaveUser(ctx, u); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, kind := range []string{OutboxChange, OutboxAnswer, OutboxFeedback} {
+				var count int
+				if err := db.r.QueryRowContext(ctx, "SELECT COUNT(*) FROM outbox WHERE kind=?", kind).Scan(&count); err != nil {
+					t.Fatal(err)
+				}
+				want := 1
+				if kind == OutboxChange {
+					want = 0
+				}
+				if count != want {
+					t.Fatalf("Очередь %s: %d вместо %d", kind, count, want)
+				}
+			}
+		})
+	}
+}

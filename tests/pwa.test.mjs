@@ -70,7 +70,7 @@ async function workerHarness({ legacy = false, failPath = "" } = {}) {
     restart() { createWorker(); },
     offline() { online = false; },
     fetches: () => fetches,
-    cache: async () => caches.open((await caches.keys()).find(name => name === 'mp-shell-v31')),
+    cache: async () => caches.open((await caches.keys()).find(name => name === 'mp-shell-v34')),
     async get(path) {
       let result;
       listeners.fetch({ request: new Request(origin + path), respondWith: p => result = p });
@@ -189,8 +189,8 @@ test('a fully installed update replaces a retained old controller and removes on
   assert.equal(worker.claimed(), false, 'installation alone does not claim clients');
   await worker.activate();
   assert.equal(worker.claimed(), true);
-  assert.deepEqual((await worker.names()).sort(), ['mp-shell-v31', 'unrelated-cache']);
-  assert.equal(worker.version(), 'mp-shell-v31');
+  assert.deepEqual((await worker.names()).sort(), ['mp-shell-v34', 'unrelated-cache']);
+  assert.equal(worker.version(), 'mp-shell-v34');
   worker.offline();
   worker.restart();
   for (const path of ['/app.js', '/ux.mjs', '/revisions.mjs', '/icon-192.png', '/icon-512.png', '/manifest-night.webmanifest']) {
@@ -241,12 +241,12 @@ test('closed beta worker removes legacy shells and never serves cached pages', a
   const handlers = {}, removed = [];
   let claimed = false, skipped = false;
   vm.runInNewContext(await readFile(new URL('beta-sw.js', assets), 'utf8'), {
-    caches: { keys: async () => ['mp-shell-v31', 'unrelated-cache'], delete: async k => removed.push(k) },
+    caches: { keys: async () => ['mp-shell-v34', 'unrelated-cache'], delete: async k => removed.push(k) },
     self: { skipWaiting: async () => { skipped = true; }, clients: { claim: async () => { claimed = true; } }, addEventListener: (name, fn) => handlers[name] = fn },
   });
   let work;
   handlers.install({ waitUntil: p => work = p }); await work;
   handlers.activate({ waitUntil: p => work = p }); await work;
   assert.equal(skipped, true); assert.equal(claimed, true);
-  assert.deepEqual(removed, ['mp-shell-v31']); assert.equal(handlers.fetch, undefined);
+  assert.deepEqual(removed, ['mp-shell-v34']); assert.equal(handlers.fetch, undefined);
 });

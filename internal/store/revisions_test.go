@@ -203,3 +203,106 @@ func TestRevisionUpgradeWithoutOldMonthSnapshot(t *testing.T) {
 		t.Fatalf("%+v %v", rev, err)
 	}
 }
+
+func TestSlotIdentityChangeDoesNotBreakImport(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	fixNow(t, "2026-09-08")
+	ms := importdata.MonthSchedule{GroupID: 232, Year: 2026, Month: 9,
+		LessonTimes: append([]importdata.LessonTime{}, testTimes...),
+		Lessons:     []importdata.Lesson{{ID: 1, GroupID: 232, Date: "2026-09-08", LessonTimeID: 1, Discipline: "Химия"}}}
+	if _, err := db.SaveMonth(ctx, ms); err != nil {
+		t.Fatal(err)
+	}
+	ms.LessonTimes[0].ID = 99
+	ms.Lessons[0].LessonTimeID = 99
+	for range 2 {
+		if _, err := db.SaveMonth(ctx, ms); err != nil {
+			t.Fatal(err)
+		}
+	}
+	revs, err := db.ScheduleRevisions(ctx, 232, "2026-09-07")
+	if err != nil || len(revs) != 0 {
+		t.Fatalf("Ложные ревизии: %+v, %v", revs, err)
+	}
+	ms.Lessons[0].Classroom = "Б"
+	if changed, err := db.SaveMonth(ctx, ms); err != nil || !changed {
+		t.Fatalf("Правка после смены слота: %v, %v", changed, err)
+	}
+	if err := db.tx(ctx, func(tx *sql.Tx) error {
+		return saveChangedDays(ctx, tx, 999, []ChangedDay{{Date: "2026-09-08"}}, nowFunc().Unix())
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPurgeKeepsSnapshotUntilBoundaryWeekEnds(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	fixNow(t, "2026-10-01")
+	sep := importdata.MonthSchedule{GroupID: 232, Year: 2026, Month: 9, LessonTimes: testTimes,
+		Lessons: []importdata.Lesson{{ID: 1, GroupID: 232, Date: "2026-09-30", LessonTimeID: 1, Discipline: "Химия"}}}
+	oct := importdata.MonthSchedule{GroupID: 232, Year: 2026, Month: 10, LessonTimes: testTimes,
+		Lessons: []importdata.Lesson{{ID: 2, GroupID: 232, Date: "2026-10-01", LessonTimeID: 1, Discipline: "Физика"}}}
+	for _, ms := range []importdata.MonthSchedule{sep, oct} {
+		if _, err := db.SaveMonth(ctx, ms); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, date := range []string{"2026-10-01", "2026-10-04"} {
+		if err := db.PurgeChangedDays(ctx, 0, date); err != nil {
+			t.Fatal(err)
+		}
+		if _, known, err := db.monthSnapshot(ctx, 232, 2026, 9); err != nil || !known {
+			t.Fatalf("Снимок удалён в %s: %v", date, err)
+		}
+	}
+	oct.Lessons[0].Classroom = "Б"
+	if _, err := db.SaveMonth(ctx, oct); err != nil {
+		t.Fatal(err)
+	}
+	revs, err := db.ScheduleRevisions(ctx, 232, "2026-09-28")
+	if err != nil || len(revs) != 1 {
+		t.Fatalf("Ревизии: %+v %v", revs, err)
+	}
+	rev, err := db.ScheduleRevision(ctx, 232, "2026-09-28", revs[0].ID)
+	if err != nil || len(rev.Before) != 2 || len(rev.After) != 2 {
+		t.Fatalf("Неделя потеряла сентябрь: %+v %v", rev, err)
+	}
+	if err := db.PurgeChangedDays(ctx, 0, "2026-10-05"); err != nil {
+		t.Fatal(err)
+	}
+	if _, known, err := db.monthSnapshot(ctx, 232, 2026, 9); err != nil || known {
+		t.Fatalf("Старый снимок остался: %v", err)
+	}
+}
+
+func TestPastOnlyChangeAfterMidnightDoesNotNotify(t *testing.T) {
+	db := openTest(t)
+	ctx := context.Background()
+	fixNow(t, "2026-09-08")
+	ms := importdata.MonthSchedule{GroupID: 232, Year: 2026, Month: 9, LessonTimes: testTimes,
+		Lessons: []importdata.Lesson{
+			{ID: 1, GroupID: 232, Date: "2026-09-08", LessonTimeID: 1, Discipline: "Химия"},
+			{ID: 2, GroupID: 232, Date: "2026-09-09", LessonTimeID: 1, Discipline: "Физика"},
+		}}
+	if _, err := db.SaveMonth(ctx, ms); err != nil {
+		t.Fatal(err)
+	}
+	fixNow(t, "2026-09-09")
+	ms.Lessons[0].Classroom = "Б"
+	if notify, err := db.SaveMonth(ctx, ms); err != nil || notify {
+		t.Fatalf("Прошедшая правка дала уведомление: %v %v", notify, err)
+	}
+	revs, err := db.ScheduleRevisions(ctx, 232, "2026-09-07")
+	if err != nil || len(revs) != 1 {
+		t.Fatalf("Прошедшая правка потеряна в истории: %+v %v", revs, err)
+	}
+	if raw, err := db.Meta(ctx, changeEventKey(232, 2026, 9)); err != nil || raw != "" {
+		t.Fatalf("Создано пустое событие: %s %v", raw, err)
+	}
+	ms.Lessons[1].Classroom = "В"
+	if notify, err := db.SaveMonth(ctx, ms); err != nil || !notify {
+		t.Fatalf("Сегодняшняя правка потеряна: %v %v", notify, err)
+	}
+}

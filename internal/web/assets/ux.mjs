@@ -83,6 +83,7 @@ export function readPreferences(storage, cookie = "") {
   try { data = JSON.parse(storage.getItem("mp.preferences.v1") || "{}") || {}; } catch {}
   return {
     ...base,
+    timeFormat: data.timeFormat === "12" ? "12" : "24",
     groupSubgroups: Object.fromEntries(Object.entries(data.groupSubgroups && typeof data.groupSubgroups === "object" ? data.groupSubgroups : {})
       .filter(([g, s]) => /^\d+$/.test(g) && Number.isSafeInteger(Number(g)) && Number(g) > 0 && Number.isSafeInteger(s) && s >= 0).slice(-24)),
     homeGroup: Number.isSafeInteger(data.homeGroup?.id) && data.homeGroup.id > 0
@@ -98,6 +99,12 @@ export function studyDay(days, date, minute) {
   return [...(days || [])].sort((a, b) => a.date.localeCompare(b.date)).find(d =>
     d.date >= date && (d.items || []).some(l => actual(l) &&
       (d.date > date || !(l.minute_to > l.minute_from) || l.minute_to > minute))) || null;
+}
+
+// День, который расписание открывает само: сегодня, пока в нём остались пары,
+// иначе ближайший следующий учебный день. Без данных остаётся сегодня.
+export function openingDay(days, date, minute) {
+  return studyDay(days, date, minute)?.date || date;
 }
 
 export function dayOverview(day, grid) {

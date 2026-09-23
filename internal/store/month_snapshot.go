@@ -41,21 +41,7 @@ func saveMonthSnapshot(ctx context.Context, tx *sql.Tx, ms importdata.MonthSched
 			return e
 		}
 	}
-	times := map[int64]importdata.LessonTime{}
-	for _, tm := range ms.LessonTimes {
-		times[tm.ID] = tm
-	}
-	lessons := make([]schedule.Lesson, 0, len(ms.Lessons))
-	for _, l := range ms.Lessons {
-		tm := times[l.LessonTimeID]
-		item := schedule.Lesson{ID: l.ID, Date: l.Date, TimeID: l.LessonTimeID, MinuteFrom: tm.MinuteFrom, MinuteTo: tm.MinuteTo, TimeLabel: tm.Label,
-			Discipline: l.Discipline, ClassType: l.ClassType, Classroom: l.Classroom, Audience: schedule.Audience(l.Audience),
-			SubgroupID: l.SubgroupID, AudienceLabel: l.AudienceLabel, Flags: flagsOf(l), Comments: l.Comments}
-		for _, staff := range l.Staff {
-			item.Staff = append(item.Staff, staff.Name)
-		}
-		lessons = append(lessons, item)
-	}
+	lessons := snapshotLessons(ms)
 	ids, err := saveScheduleRevisions(ctx, tx, ms, lessons, touched)
 	if err != nil {
 		return err
@@ -108,4 +94,24 @@ func decodeMonthSnapshot(raw string) ([]schedule.Lesson, error) {
 	var lessons []schedule.Lesson
 	err = json.NewDecoder(io.LimitReader(reader, 32<<20)).Decode(&lessons)
 	return lessons, err
+}
+
+// snapshotLessons приводит импорт к тому же виду, что и сохранённый снимок.
+func snapshotLessons(ms importdata.MonthSchedule) []schedule.Lesson {
+	times := map[int64]importdata.LessonTime{}
+	for _, tm := range ms.LessonTimes {
+		times[tm.ID] = tm
+	}
+	lessons := make([]schedule.Lesson, 0, len(ms.Lessons))
+	for _, l := range ms.Lessons {
+		tm := times[l.LessonTimeID]
+		item := schedule.Lesson{ID: l.ID, Date: l.Date, TimeID: l.LessonTimeID, MinuteFrom: tm.MinuteFrom, MinuteTo: tm.MinuteTo, TimeLabel: tm.Label,
+			Discipline: l.Discipline, ClassType: l.ClassType, Classroom: l.Classroom, Audience: schedule.Audience(l.Audience),
+			SubgroupID: l.SubgroupID, AudienceLabel: l.AudienceLabel, Flags: flagsOf(l), Comments: l.Comments}
+		for _, staff := range l.Staff {
+			item.Staff = append(item.Staff, staff.Name)
+		}
+		lessons = append(lessons, item)
+	}
+	return lessons
 }

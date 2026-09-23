@@ -495,14 +495,10 @@ func (s *Server) handleNow(w http.ResponseWriter, r *http.Request) {
 	groupID := intParam(r, "group")
 	subgroupID := intParam(r, "subgroup")
 
-	// Часовой пояс пользователя может отличаться от вузовского: студент на
-	// каникулах в другом регионе всё ещё хочет знать, что идёт «сейчас».
-	tz := int(intParam(r, "tz"))
-	loc := s.loc
-	if tz != 0 {
-		loc = time.FixedZone("user", tz*60)
-	}
-	at := time.Now().In(loc)
+	// Дата и минуты занятий заданы в поясе вуза. Текущий момент должен
+	// быть в том же поясе; прежний параметр tz оставлен для старых клиентов,
+	// но больше не влияет на выбор текущего занятия.
+	at := time.Now().In(s.loc)
 	date := schedule.FormatDate(at)
 
 	cx, err := s.resolveContext(ctx, groupID, subgroupID)

@@ -1,8 +1,8 @@
 import { nextThemeValue } from "./themes.mjs";
-import { studyDay, dayOverview, shortName, groupedDayRows, groupedNearby, revisionSummary, readPreferences } from "./ux.mjs";
+import { studyDay, openingDay, dayOverview, shortName, groupedDayRows, groupedNearby, revisionSummary, readPreferences } from "./ux.mjs";
 import {
   esc,
-  clock,
+  clock as formatClock,
   today,
   minutesNow,
   shift,
@@ -219,6 +219,9 @@ const state = {
   exams: [],
 };
 if (sharedDate) state.view = "day";
+// День выбран не человеком, а по умолчанию: такой вид «День» сам уходит с
+// сегодняшнего дня, когда пары в нём закончились.
+state.autoDate = state.date === today();
 if (config.demo && !state.compare) state.compare = 40;
 try {
   if (
@@ -240,6 +243,8 @@ let generation = 0,
   searchTimer,
   toastTimer,
   telegramTheme;
+const clock = (n) => formatClock(n, state.timeFormat);
+
 function persist() {
   if (state.group) {
     state.groupSubgroups[state.group] = state.subgroup;
@@ -264,6 +269,7 @@ function persist() {
             "proximity",
             "theme",
             "view",
+            "timeFormat",
             "showTransfers",
             "favorites",
             "groupSubgroups",
@@ -390,19 +396,23 @@ window.addEventListener("popstate", () => {
     validDate(q.get("week")) ? q.get("week") : back || today(),
   );
   state.date = back || state.week;
-  state.view = back ? "day" : "week";
+  state.autoDate = false;
+  if (state.route === "schedule") {
+    if (back) state.view = "day";
+    else if (validDate(q.get("week"))) state.view = "week";
+  }
   state.group = validID(q.get("group")) || state.group;
   state.subgroup = validID(q.get("subgroup")) || 0;
   state.compareMode = ["nearby", "breaks", "free"].includes(q.get("mode"))
     ? q.get("mode")
-    : "nearby";
+    : state.compareMode;
   state.proximity = ["all", "floor", "room"].includes(q.get("near"))
     ? q.get("near")
-    : "all";
+    : state.proximity;
   state.compare = validID(q.get("compare")) || state.compare;
   state.compareSubgroup = validID(q.get("compare_subgroup")) || 0;
-  state.minMeeting = [15, 30, 60, 90].includes(Number(q.get("min"))) ? Number(q.get("min")) : 30;
-  state.meetingEnd = [1080, 1200, 1320].includes(Number(q.get("until"))) ? Number(q.get("until")) : 1080;
+  state.minMeeting = [15, 30, 60, 90].includes(Number(q.get("min"))) ? Number(q.get("min")) : state.minMeeting;
+  state.meetingEnd = [1080, 1200, 1320].includes(Number(q.get("until"))) ? Number(q.get("until")) : state.meetingEnd;
   state.teacher = validID(q.get("teacher")) || 0;
   state.teacherSubject = q.get("teacher_subject") || "";
   state.teacherQuery = q.get("teacher_q") || "";
@@ -468,11 +478,36 @@ function nearestDay(date, days) {
   if (date === today() || !known.length || known.some((d) => d.date === date)) return date;
   return (known.filter((d) => d.date < date).pop() || known[0]).date;
 }
+// Какой день открыть по умолчанию. Берём ближайшие 30 дней из /schedule/upcoming
+// и текущую неделю: чужая неделя про «сейчас» ничего не знает.
+function homeDate() {
+  const upcoming = state.upcomingKey === `${state.group}:${state.subgroup}:${today()}` ? state.upcoming?.days || [] : [];
+  const current = state.week === monday(today()) ? state.data?.week?.days || [] : [];
+  return openingDay([...upcoming, ...current], today(), nowMinute());
+}
+// Прошедший день в виде «День» по умолчанию не показываем: если сегодня пары
+// кончились, открываем следующий учебный, в том числе на следующей неделе.
+// Возвращает true, когда для него нужно загрузить другую неделю.
+function followHome() {
+  if (!state.autoDate || state.route !== "schedule" || state.view !== "day" || state.subject || state.subjectName || state.revisionMode) return false;
+  const home = homeDate();
+  if (home === state.date) return false;
+  state.date = home;
+  if (monday(home) === state.week) return false;
+  state.week = monday(home);
+  return true;
+}
+// Неделя, для которой «Мой день» уместнее недельной сводки.
+function onHomeWeek() {
+  return state.week === monday(today()) || (state.autoDate && state.week === monday(homeDate()));
+}
 // Открыто ли ровно то, к чему ведёт «Сегодня».
 function atToday() {
-  if (state.week !== monday(today())) return false;
+  if (state.autoDate && state.route === "schedule") return true;
+  const home = state.route === "schedule" && state.view === "day" ? homeDate() : today();
+  if (state.week !== monday(home)) return false;
   if (state.route !== "schedule" || state.view !== "day") return true;
-  return state.date === nearestDay(today(), state.data?.week?.days);
+  return state.date === nearestDay(home, state.data?.week?.days);
 }
 function weekControls(extra = "") {
   // «Сегодня» показываем, только когда есть куда возвращаться. На текущей
@@ -712,6 +747,7 @@ async function load({ quiet = false, soft = false } = {}) {
     // Держать выбранным день, которого нет в неделе (то же воскресенье), —
     // значит показать пустой список и активную вкладку, которой не видно.
     state.date = nearestDay(state.date, state.data?.week?.days);
+    if (followHome()) return load({ quiet, soft: true });
     if (state.homeGroup?.id === state.group && state.groupInfo) state.homeGroup.name = state.groupInfo.name;
     if (state.data) state.data = withAudienceNames(state.data, state.subgroups);
     // Подпись подгруппы разрешается по справочнику здесь же: лента предмета
@@ -764,6 +800,8 @@ async function load({ quiet = false, soft = false } = {}) {
       state.upcomingError = true;
       if (state.upcoming) state.upcoming = { ...state.upcoming, stale: true };
     }
+    if (followHome()) return load({ soft: true });
+    syncURL();
     render();
   }
 }
@@ -865,7 +903,7 @@ function miniCalendar() {
     .join("")}</div></section>`;
 }
 function freshness(d = state.data) {
-  return `<div class="freshness"><p>${icon("refresh")} ${config.demo ? "Пример данных" : d?.fetched_at && !d.fetched_at.startsWith("0001") ? "Обновлено " + dateLabel(d.fetched_at.slice(0, 10)) + ", " + new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", timeZone: config.timezone || "UTC" }).format(new Date(d.fetched_at)) : "Дата обновления пока неизвестна"}</p><p>Часовой пояс: ${esc(config.timezone || "UTC")}. Источник — ${esc(config.source_name || "расписание вуза")}. Возможны изменения.</p></div>`;
+  return `<div class="freshness"><p>${icon("refresh")} ${config.demo ? "Пример данных" : d?.fetched_at && !d.fetched_at.startsWith("0001") ? "Обновлено " + dateLabel(d.fetched_at.slice(0, 10)) + ", " + new Intl.DateTimeFormat("ru-RU", { hour: "2-digit", minute: "2-digit", hourCycle: state.timeFormat === "12" ? "h12" : "h23", timeZone: config.timezone || "UTC" }).format(new Date(d.fetched_at)) : "Дата обновления пока неизвестна"}</p><p>Часовой пояс: ${esc(config.timezone || "UTC")}. Источник — ${esc(config.source_name || "расписание вуза")}. Возможны изменения.</p></div>`;
 }
 function myDayView() {
   const key = `${state.group}:${state.subgroup}:${today()}`;
@@ -945,6 +983,7 @@ const revisionStamp = (at) =>
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    hourCycle: state.timeFormat === "12" ? "h12" : "h23",
     timeZone: config.timezone || "UTC",
   }).format(new Date(at));
 let revisionGeneration = 0;
@@ -1034,7 +1073,7 @@ function revisionsPanel() {
     <label class="revision-options"><input type="checkbox" id="revision-only" ${state.revisionOnlyChanges ? "checked" : ""}>Только изменённые занятия</label>
     <details id="revision-details" class="revision-details" ${state.revisionDetailsOpen ? "open" : ""}><summary>Версии расписания · ${esc(revisionStamp(rev.created_at))}</summary>
     <div class="revision-picker"><button data-action="revision-step" data-step="1" ${index === state.revisions.length - 1 ? "disabled" : ""} aria-label="Предыдущий снимок">${icon("left")}</button><select id="revision-select" aria-label="Снимок расписания">${state.revisions.map((r, i) => `<option value="${r.id}" ${r.id === rev.id ? "selected" : ""}>${i === 0 ? "Последний · " : ""}${esc(revisionStamp(r.created_at))} · #${r.id}</option>`).join("")}</select><button data-action="revision-step" data-step="-1" ${index === 0 ? "disabled" : ""} aria-label="Следующий снимок">${icon("right")}</button></div>
-    <p class="revision-comparison">${new Date(rev.before_at).getTime() ? esc(revisionStamp(rev.before_at)) : "До правки"} <span aria-label="по сравнению с">→</span> <strong>${esc(revisionStamp(rev.created_at))}</strong> <span>МСК · время обнаружения</span></p>
+    <p class="revision-comparison">${new Date(rev.before_at).getTime() ? esc(revisionStamp(rev.before_at)) : "До правки"} <span aria-label="по сравнению с">→</span> <strong>${esc(revisionStamp(rev.created_at))}</strong> <span>${esc(config.timezone || "UTC")} · время обнаружения</span></p>
     <div class="revision-legend"><span class="revision-added">+ ${plus} добавлено</span><span class="revision-removed">− ${minus} убрано</span><span>= ${unchanged} без изменений</span></div>
     <p class="revision-help">${plus || minus ? "Изменённая пара: − как было, + как стало. Остальные — без изменений." : "Видимых отличий нет: в этой версии могли обновиться другая подгруппа или служебные номера записей."} Снимки хранятся 14 дней.${new Date(rev.before_at).getTime() === 0 ? " Этот переход восстановлен из прежнего хранилища; время предыдущей версии неизвестно." : ""}</p>
     ${state.revisionOffline ? '<p class="notice">Офлайн: сохранённая история может быть неполной.</p>' : ""}
@@ -1079,7 +1118,7 @@ function scheduleView() {
     notice(state.data) +
     revisionsToggle() +
     (state.revisionMode ? "" : sessionBanner()) +
-    `${state.revisionMode ? "" : state.week === monday(today()) ? myDayView() : `<div class="summary-row">${nextCard()}<article class="summary-card"><div class="card-top"><span>Пар на неделе</span>${icon("book")}</div><div class="metric">${st.count} <small>занятий</small></div><p class="caption">${st.studyDays} учебных дней по расписанию</p></article><article class="summary-card"><div class="card-top"><span>Учебная нагрузка</span>${icon("clock")}</div><div class="metric">${(st.minutes / 60).toLocaleString("ru", { maximumFractionDigits: 1 })} <small>часа</small></div><p class="caption">Без перемен и пересечений</p></article></div>`}<div class="content-layout"><section class="schedule-area">${weekControls(`<div class="segmented" aria-label="Вид расписания"><button data-action="view" data-view="week" class="${state.view === "week" ? "active" : ""}" aria-pressed="${state.view === "week"}">Неделя</button><button data-action="view" data-view="day" class="${state.view === "day" ? "active" : ""}" aria-pressed="${state.view === "day"}">День</button></div>`)}${state.revisionMode ? revisionsPanel() : ""}${state.revisionMode && (state.revision || state.revisionLoading || state.revisionError || state.revisionContext !== revisionContext()) ? revisionSchedule() : state.view === "week" ? weekGrid(state.data.week, state.data.grid) : dayList(state.data.week, state.data.grid)}</section><aside class="rail">${miniCalendar()}<section class="panel meet-panel">${icon("compare")}<h2>Пересечёмся?</h2><p>Разные группы — не повод не видеться. Узнайте, когда вы в одном корпусе, и пересекитесь на перемене.</p>${button("compare", "Сравнить расписания", "up")}</section>${freshness()}</aside></div>`
+    `${state.revisionMode ? "" : onHomeWeek() ? myDayView() : `<div class="summary-row">${nextCard()}<article class="summary-card"><div class="card-top"><span>Пар на неделе</span>${icon("book")}</div><div class="metric">${st.count} <small>занятий</small></div><p class="caption">${st.studyDays} учебных дней по расписанию</p></article><article class="summary-card"><div class="card-top"><span>Учебная нагрузка</span>${icon("clock")}</div><div class="metric">${(st.minutes / 60).toLocaleString("ru", { maximumFractionDigits: 1 })} <small>часа</small></div><p class="caption">Без перемен и пересечений</p></article></div>`}<div class="content-layout"><section class="schedule-area">${weekControls(`<div class="segmented" aria-label="Вид расписания"><button data-action="view" data-view="week" class="${state.view === "week" ? "active" : ""}" aria-pressed="${state.view === "week"}">Неделя</button><button data-action="view" data-view="day" class="${state.view === "day" ? "active" : ""}" aria-pressed="${state.view === "day"}">День</button></div>`)}${state.revisionMode ? revisionsPanel() : ""}${state.revisionMode && (state.revision || state.revisionLoading || state.revisionError || state.revisionContext !== revisionContext()) ? revisionSchedule() : state.view === "week" ? weekGrid(state.data.week, state.data.grid) : dayList(state.data.week, state.data.grid)}</section><aside class="rail">${miniCalendar()}<section class="panel meet-panel">${icon("compare")}<h2>Пересечёмся?</h2><p>Разные группы — не повод не видеться. Узнайте, когда вы в одном корпусе, и пересекитесь на перемене.</p>${button("compare", "Сравнить расписания", "up")}</section>${freshness()}</aside></div>`
   );
 }
 
@@ -1170,7 +1209,7 @@ function teachersView() {
       const tag = selectedNames.length > 1 || state.teacherSubject ? "button" : "article";
       return `<${tag} class="teacher-subject ${state.teacherSubject === name ? "active" : ""}" ${tag === "button" ? `data-action="teacher-subject" data-name="${esc(name)}" aria-pressed="${state.teacherSubject === name}"` : ""}><span class="teacher-subject-title">${icon("book")}<strong>${esc(name)}</strong></span>${subject?.kinds?.length ? `<span class="small muted">${esc([...new Set(subject.kinds.map(k => lessonKind(k).label))].join(" · "))}</span>` : ""}<span class="teacher-groups">${teacherGroups(subject?.groups)}</span><span class="teacher-subject-count">${n ? `${n} ${plural(n, "занятие", "занятия", "занятий")} на неделе` : "На этой неделе занятий нет"}</span></${tag}>`;
     }).join("");
-    const nextCard = next ? `<button class="teacher-next" data-action="lesson" data-id="${next.id}" data-date="${next.date}"><span class="eyebrow">${sum.current ? "Сейчас по расписанию" : "Ближайшее на этой неделе"}</span><strong>${esc(next.discipline || "Занятие")}</strong><span>${dateLabel(next.date, { weekday: "short", day: "numeric", month: "short" })} · ${clock(next.minute_from)} – ${clock(next.minute_to)} МСК</span><span>${esc(placeLabel(next))}</span><span class="teacher-groups">${teacherGroups(next.groups)}</span></button>` : "";
+    const nextCard = next ? `<button class="teacher-next" data-action="lesson" data-id="${next.id}" data-date="${next.date}"><span class="eyebrow">${sum.current ? "Сейчас по расписанию" : "Ближайшее на этой неделе"}</span><strong>${esc(next.discipline || "Занятие")}</strong><span>${dateLabel(next.date, { weekday: "short", day: "numeric", month: "short" })} · ${clock(next.minute_from)} – ${clock(next.minute_to)} ${esc(config.timezone || "UTC")}</span><span>${esc(placeLabel(next))}</span><span class="teacher-groups">${teacherGroups(next.groups)}</span></button>` : "";
     const agenda = sum.lessons.length ? (t.week.days || []).map(day => {
       const lessons = sum.lessons.filter(l => l.date === day.date);
       return `<section class="teacher-day"><div class="teacher-day-heading"><h3>${dateLabel(day.date, { weekday: "long", day: "numeric", month: "short" })}</h3>${day.date === today() ? '<span class="teacher-today">Сегодня</span>' : ""}<span class="small muted">${lessons.length ? `${lessons.length} ${plural(lessons.length, "занятие", "занятия", "занятий")}` : "Нет занятий в загруженных данных"}</span></div>${lessons.map(teacherLesson).join("")}</section>`;
@@ -1178,7 +1217,7 @@ function teachersView() {
     const rooms = sum.rooms.length ? `<section class="panel teacher-places"><h2>Где проходят занятия</h2><p class="small muted">${state.teacherSubject ? "По выбранному предмету на неделе" : "В открытой неделе"}. Аудитория может меняться.</p>${sum.rooms.map(r => `<div>${icon("pin")}<span>${esc(r.name)}</span><small>${r.count} ${plural(r.count, "занятие", "занятия", "занятий")}</small></div>`).join("")}</section>` : "";
     return `<div class="teacher-back">${button("all-teachers", "Преподаватели", "left")}${button("share", "Поделиться", "share")}</div>` +
       `<div class="teacher-heading"><span class="avatar">${teacherInitials(t.teacher.name)}</span><div><span class="eyebrow muted">Преподаватель</span><h1>${esc(t.teacher.full_name || t.teacher.name)}</h1>${teacherIdentity(t.teacher)}<p>${subjects.length === 1 ? esc(subjects[0].name) : subjects.length ? `${subjects.length} ${plural(subjects.length, "предмет", "предмета", "предметов")} в загруженном расписании полугодия` : "Предметы появятся после загрузки занятий"}</p></div></div>` +
-      notice(t) + `<div class="teacher-layout"><aside class="teacher-aside"><details id="teacher-profile" class="panel teacher-subjects" ${(state.teacherProfileOpen ?? !matchMedia("(max-width: 800px)").matches) ? "open" : ""}><summary>Что ведёт <span>${selectedNames.length} ${plural(selectedNames.length, "предмет", "предмета", "предметов")}</span></summary><p class="small muted">${teacherPeriod(profile)}</p>${selectedNames.length > 1 ? '<p class="small muted">Выберите предмет, чтобы отфильтровать неделю.</p>' : ""}${selectedNames.length ? `${selectedNames.length > 1 || state.teacherSubject ? `<button class="teacher-subject-all ${!state.teacherSubject ? "active" : ""}" data-action="teacher-subject" aria-pressed="${!state.teacherSubject}">Все предметы <span>${allLessons.length}</span></button>` : ""}${subjectCards}` : '<p class="small muted">В этом полугодии предметов пока нет в загруженных данных.</p>'}<p class="teacher-source small muted">${profile?.missing ? "Полугодие загружено частично. " : ""}${profile?.stale ? "Сведения о предметах давно не обновлялись. " : ""}Предметы и группы определены по расписанию; это не учебный план.</p></details>${rooms}</aside><div class="teacher-main">${nextCard}<section class="teacher-schedule"><div class="teacher-schedule-title"><h2>Учебная неделя</h2><span class="small muted">Время МСК</span></div>${weekControls()}${state.teacherSubject ? `<div class="teacher-filter"><span>${esc(state.teacherSubject)}</span>${button("teacher-subject", "Сбросить", "close")}</div>` : ""}<div class="teacher-week-stats"><span><strong>${sum.lessons.length}</strong> ${plural(sum.lessons.length, "занятие", "занятия", "занятий")}</span><span><strong>${sum.days}</strong> ${plural(sum.days, "учебный день", "учебных дня", "учебных дней")}</span><span><strong>${sum.groups.length}</strong> ${plural(sum.groups.length, "группа", "группы", "групп")}</span></div>${agenda}</section><p class="teacher-source small muted">Показаны занятия по загруженным группам. Потоковая пара учитывается один раз. Отсутствие пары не гарантирует, что преподаватель свободен.</p>${freshness(t)}</div></div>`;
+      notice(t) + `<div class="teacher-layout"><aside class="teacher-aside"><details id="teacher-profile" class="panel teacher-subjects" ${(state.teacherProfileOpen ?? !matchMedia("(max-width: 800px)").matches) ? "open" : ""}><summary>Что ведёт <span>${selectedNames.length} ${plural(selectedNames.length, "предмет", "предмета", "предметов")}</span></summary><p class="small muted">${teacherPeriod(profile)}</p>${selectedNames.length > 1 ? '<p class="small muted">Выберите предмет, чтобы отфильтровать неделю.</p>' : ""}${selectedNames.length ? `${selectedNames.length > 1 || state.teacherSubject ? `<button class="teacher-subject-all ${!state.teacherSubject ? "active" : ""}" data-action="teacher-subject" aria-pressed="${!state.teacherSubject}">Все предметы <span>${allLessons.length}</span></button>` : ""}${subjectCards}` : '<p class="small muted">В этом полугодии предметов пока нет в загруженных данных.</p>'}<p class="teacher-source small muted">${profile?.missing ? "Полугодие загружено частично. " : ""}${profile?.stale ? "Сведения о предметах давно не обновлялись. " : ""}Предметы и группы определены по расписанию; это не учебный план.</p></details>${rooms}</aside><div class="teacher-main">${nextCard}<section class="teacher-schedule"><div class="teacher-schedule-title"><h2>Учебная неделя</h2><span class="small muted">Время ${esc(config.timezone || "UTC")}</span></div>${weekControls()}${state.teacherSubject ? `<div class="teacher-filter"><span>${esc(state.teacherSubject)}</span>${button("teacher-subject", "Сбросить", "close")}</div>` : ""}<div class="teacher-week-stats"><span><strong>${sum.lessons.length}</strong> ${plural(sum.lessons.length, "занятие", "занятия", "занятий")}</span><span><strong>${sum.days}</strong> ${plural(sum.days, "учебный день", "учебных дня", "учебных дней")}</span><span><strong>${sum.groups.length}</strong> ${plural(sum.groups.length, "группа", "группы", "групп")}</span></div>${agenda}</section><p class="teacher-source small muted">Показаны занятия по загруженным группам. Потоковая пара учитывается один раз. Отсутствие пары не гарантирует, что преподаватель свободен.</p>${freshness(t)}</div></div>`;
   }
   return heading("Преподаватели", "Найдите человека по фамилии или предмету — узнайте, что он ведёт и где проходят занятия.") +
     `<section class="teacher-search-panel"><label class="search-field">${icon("search")}<input id="teacher-search" type="search" value="${esc(state.teacherQuery)}" placeholder="Фамилия или предмет" aria-label="Поиск по фамилии или предмету" autocomplete="off"></label><div class="teacher-search-meta"><div class="segmented" role="group" aria-label="Каких преподавателей показать"><button data-action="teacher-scope" data-scope="all" class="${state.teacherScope === "all" ? "active" : ""}" aria-pressed="${state.teacherScope === "all"}">Все преподаватели</button>${state.group ? `<button data-action="teacher-scope" data-scope="mine" class="${state.teacherScope === "mine" ? "active" : ""}" aria-pressed="${state.teacherScope === "mine"}">Моей группы${state.groupInfo?.name ? ` · ${esc(state.groupInfo.name)}` : ""}</button>` : ""}</div><span class="small muted">${teacherPeriod(state.teacherCatalog)}</span></div></section><div id="teacher-results" aria-live="polite" aria-busy="${state.loading}">${state.loading ? '<p class="progress-text">Ищем преподавателей…</p>' : teacherCards()}</div>`;
@@ -1335,7 +1374,7 @@ function compareView() {
         ? "Показываем одновременные пары и соседние по времени — с разрывом до 30 минут. Этаж с пометкой «вероятно» предполагается по трёхзначному номеру аудитории. Это не план здания."
         : mode === "breaks"
           ? "Ищем от 5 минут сразу после очных пар в одном корпусе. Проверяем, что оба свободны, и ограничиваем подсказку 30 минутами после более раннего окончания."
-          : `Ищем общее свободное время с 08:30 до ${clock(state.meetingEnd)} МСК. Расположение групп не учитывается — дорогу между корпусами запланируйте отдельно.`;
+          : `Ищем общее свободное время с ${clock(510)} до ${clock(state.meetingEnd)} ${esc(config.timezone || "UTC")}. Расположение групп не учитывается — дорогу между корпусами запланируйте отдельно.`;
     results = `<p class="comparison-explanation">Сначала — предстоящие варианты. ${notes}</p>`;
     if (!verified)
       results +=
@@ -1456,7 +1495,7 @@ function subjectView() {
 function settingsView() {
   return (
     heading("Как удобно вам", "Сайт запомнит ваш выбор на этом устройстве.") +
-    `<div class="settings-stack">${adminAccess ? `<section class="panel"><h2>Администрирование</h2><p class="small muted">Работа сервисов, пользователи и история метрик.</p><a class="button" href="/admin/">Открыть админку →</a></section>` : ""}${config.beta ? `<section class="panel"><h2>Закрытая бета</h2><p class="small muted">Вход сохранён на 60 дней. До 4 устройств для одного аккаунта бота.</p><a class="button" href="/account">Устройства и выход →</a></section>` : ""}<section class="panel settings-bots"><h2>Боты всегда рядом</h2><p class="small muted">Расписание и уведомления об изменениях — в привычном мессенджере.${state.groupInfo ? " Telegram-бот откроется с группой " + esc(state.groupInfo.name) + " — искать её заново не придётся." : ""}</p>${botsSection()}</section><section class="panel"><h2>Ваше расписание</h2><div class="setting-row"><div><strong>Группа и подгруппа</strong><p>${esc(state.groupInfo?.name || "Группа ещё не выбрана")}${state.subgroups.length ? " · " + esc(subgroupLabel()) : ""}</p></div>${button("pick", "Выбрать группу", "users", "", 'data-target="group"')}</div><div class="setting-row"><div><strong>Копии группы в каталоге</strong><p>Если расписание не то, проверьте одноимённые записи.</p></div>${button("twins", "Проверить копии", "", "", state.group ? "" : "disabled")}</div><div class="setting-row"><div><strong>Вид по умолчанию</strong><p>Сетка недели или список на день.</p></div><select id="default-view" aria-label="Вид по умолчанию"><option value="week" ${state.view === "week" ? "selected" : ""}>Неделя</option><option value="day" ${state.view === "day" ? "selected" : ""}>День</option></select></div><div class="setting-row"><div><strong>Переходы между корпусами</strong><p id="show-transfers-description">Подсказки между парами в разных корпусах. Полезно, если корпуса далеко друг от друга.</p></div><select id="show-transfers" aria-label="Переходы между корпусами" aria-describedby="show-transfers-description"><option value="off" ${state.showTransfers ? "" : "selected"}>Выключены</option><option value="on" ${state.showTransfers ? "selected" : ""}>Включены</option></select></div></section><section class="panel"><h2>Оформление и приложение</h2><div class="setting-row"><div><strong>Тема</strong><p>Системная следует настройкам устройства или Telegram. Звёздная ночь — уютное небо с рисованными звёздами.</p></div><select id="theme-select" aria-label="Тема оформления">${themes
+    `<div class="settings-stack">${adminAccess ? `<section class="panel"><h2>Администрирование</h2><p class="small muted">Работа сервисов, пользователи и история метрик.</p><a class="button" href="/admin/">Открыть админку →</a></section>` : ""}${config.beta ? `<section class="panel"><h2>Закрытая бета</h2><p class="small muted">Вход сохранён на 60 дней. До 4 устройств для одного аккаунта бота.</p><a class="button" href="/account">Устройства и выход →</a></section>` : ""}<section class="panel settings-bots"><h2>Боты всегда рядом</h2><p class="small muted">Расписание и уведомления об изменениях — в привычном мессенджере.${state.groupInfo ? " Telegram-бот откроется с группой " + esc(state.groupInfo.name) + " — искать её заново не придётся." : ""}</p>${botsSection()}</section><section class="panel"><h2>Ваше расписание</h2><div class="setting-row"><div><strong>Группа и подгруппа</strong><p>${esc(state.groupInfo?.name || "Группа ещё не выбрана")}${state.subgroups.length ? " · " + esc(subgroupLabel()) : ""}</p></div>${button("pick", "Выбрать группу", "users", "", 'data-target="group"')}</div><div class="setting-row"><div><strong>Копии группы в каталоге</strong><p>Если расписание не то, проверьте одноимённые записи.</p></div>${button("twins", "Проверить копии", "", "", state.group ? "" : "disabled")}</div><div class="setting-row"><div><strong>Вид по умолчанию</strong><p>Сетка недели или список на день.</p></div><select id="default-view" aria-label="Вид по умолчанию"><option value="week" ${state.view === "week" ? "selected" : ""}>Неделя</option><option value="day" ${state.view === "day" ? "selected" : ""}>День</option></select></div><div class="setting-row"><div><strong>Переходы между корпусами</strong><p id="show-transfers-description">Подсказки между парами в разных корпусах. Полезно, если корпуса далеко друг от друга.</p></div><select id="show-transfers" aria-label="Переходы между корпусами" aria-describedby="show-transfers-description"><option value="off" ${state.showTransfers ? "" : "selected"}>Выключены</option><option value="on" ${state.showTransfers ? "selected" : ""}>Включены</option></select></div></section><section class="panel"><h2>Оформление и приложение</h2><div class="setting-row"><div><strong>Формат времени</strong><p id="time-format-description">24 часа по умолчанию. В формате 12 часов используются AM и PM.</p></div><select id="time-format" aria-label="Формат времени" aria-describedby="time-format-description">${[["24", "24 часа (13:30)"], ["12", "12 часов (1:30 PM)"]].map(([value, label]) => `<option value="${value}" ${state.timeFormat === value ? "selected" : ""}>${label}</option>`).join("")}</select></div><div class="setting-row"><div><strong>Тема</strong><p>Системная следует настройкам устройства или Telegram. Звёздная ночь — уютное небо с рисованными звёздами.</p></div><select id="theme-select" aria-label="Тема оформления">${themes
       .map(
         ({ value: v, name: n }) =>
           `<option value="${v}" ${v === state.theme ? "selected" : ""}>${n}</option>`,
@@ -1575,7 +1614,7 @@ function showLesson(id, date = "", upcoming = false) {
   };
   detail(
     esc(l.discipline),
-    `<div class="dialog-meta"><p>${icon("calendar")}${dateLabel(l.date, { weekday: "long", day: "numeric", month: "long" })}</p><p>${icon("clock")}${l.minute_to > l.minute_from ? clock(l.minute_from) + " – " + clock(l.minute_to) + " МСК" : "Время не указано"}</p><p>${icon("pin")}${esc(placeLabel(l, { online: "Дистанционное занятие" }))}</p>${(l.staff || []).map((s) => `<p>${icon("users")}<button class="text-link" data-action="find-teacher" data-name="${esc(s)}">${esc(s)}</button></p>`).join("")}<p>${icon("book")}${esc([l.class_type, l.audience_label].filter(Boolean).join(" · "))}</p>${state.route === "teachers" && l.groups?.length ? `<p>${icon("users")}${esc(l.groups.map(g => g.name).join(", "))}</p>` : ""}${l.topic ? `<p>${esc(l.topic)}</p>` : ""}${l.comments ? `<p>${esc(l.comments)}</p>` : ""}</div><div class="lesson-actions">${state.route === "schedule" && !state.subject && !state.subjectName && l.discipline ? button("subject", "Про предмет", "book", "primary", `data-name="${esc(l.discipline)}" data-date="${l.date}"`) : ""}${state.route === "schedule" && (state.subject || state.subjectName) ? button("lesson-day", "Расписание дня", "calendar", "primary", `data-date="${l.date}"`) : ""}${button("close-detail", "Закрыть")}</div>`,
+    `<div class="dialog-meta"><p>${icon("calendar")}${dateLabel(l.date, { weekday: "long", day: "numeric", month: "long" })}</p><p>${icon("clock")}${l.minute_to > l.minute_from ? clock(l.minute_from) + " – " + clock(l.minute_to) + " " + esc(config.timezone || "UTC") : "Время не указано"}</p><p>${icon("pin")}${esc(placeLabel(l, { online: "Дистанционное занятие" }))}</p>${(l.staff || []).map((s) => `<p>${icon("users")}<button class="text-link" data-action="find-teacher" data-name="${esc(s)}">${esc(s)}</button></p>`).join("")}<p>${icon("book")}${esc([l.class_type, l.audience_label].filter(Boolean).join(" · "))}</p>${state.route === "teachers" && l.groups?.length ? `<p>${icon("users")}${esc(l.groups.map(g => g.name).join(", "))}</p>` : ""}${l.topic ? `<p>${esc(l.topic)}</p>` : ""}${l.comments ? `<p>${esc(l.comments)}</p>` : ""}</div><div class="lesson-actions">${state.route === "schedule" && !state.subject && !state.subjectName && l.discipline ? button("subject", "Про предмет", "book", "primary", `data-name="${esc(l.discipline)}" data-date="${l.date}"`) : ""}${state.route === "schedule" && (state.subject || state.subjectName) ? button("lesson-day", "Расписание дня", "calendar", "primary", `data-date="${l.date}"`) : ""}${button("close-detail", "Закрыть")}</div>`,
   );
 }
 async function exportWeek() {
@@ -1707,28 +1746,41 @@ document.addEventListener("click", async (event) => {
         const step = action === "prev" ? -7 : 7;
         state.week = shift(state.week, step);
         state.date = state.week === monday(today()) ? today() : state.week;
+        state.autoDate = false;
         await load({ soft: true });
         break;
       }
       case "today":
         state.week = monday(today());
         state.date = today();
+        state.autoDate = true;
+        followHome();
         await load({ soft: true });
         break;
       case "view":
-        if (el.dataset.view === "day" && state.view !== "day" && state.week === monday(today())) state.date = today();
+        if (el.dataset.view === "day" && state.view !== "day" && state.week === monday(today())) {
+          state.date = today();
+          state.autoDate = true;
+        }
         state.view = el.dataset.view;
+        if (followHome()) {
+          persist();
+          await load({ soft: true });
+          break;
+        }
         persist();
         syncURL();
         render();
         break;
       case "day":
         state.date = el.dataset.date;
+        state.autoDate = false;
         syncURL();
         render();
         break;
       case "calendar":
         state.date = el.dataset.date;
+        state.autoDate = false;
         state.week = monday(state.date);
         state.view = "day";
         persist();
@@ -1811,6 +1863,7 @@ document.addEventListener("click", async (event) => {
         if (!validDate(el.dataset.date)) break;
         $("#detail").close();
         state.date = el.dataset.date;
+        state.autoDate = false;
         state.week = monday(state.date);
         state.view = "day";
         persist();
@@ -1871,7 +1924,7 @@ document.addEventListener("click", async (event) => {
       case "meeting":
         detail(
           "Время для встречи",
-          `<p>${dateLabel(el.dataset.date, { weekday: "long", day: "numeric", month: "long" })}</p><div class="dialog-meta"><p>${icon("clock")}${clock(Number(el.dataset.from))} – ${clock(Number(el.dataset.to))} МСК</p><p>${icon("users")}${esc(state.groupInfo.name)} и ${esc(state.otherInfo.name)}</p></div><p class="small muted">В расписаниях обеих групп на это время нет занятий. Оставьте время на дорогу и договоритесь о месте.</p><div style="margin-top:20px">${button("share-meeting", "Поделиться сравнением", "share", "primary")}</div>`,
+          `<p>${dateLabel(el.dataset.date, { weekday: "long", day: "numeric", month: "long" })}</p><div class="dialog-meta"><p>${icon("clock")}${clock(Number(el.dataset.from))} – ${clock(Number(el.dataset.to))} ${esc(config.timezone || "UTC")}</p><p>${icon("users")}${esc(state.groupInfo.name)} и ${esc(state.otherInfo.name)}</p></div><p class="small muted">В расписаниях обеих групп на это время нет занятий. Оставьте время на дорогу и договоритесь о месте.</p><div style="margin-top:20px">${button("share-meeting", "Поделиться сравнением", "share", "primary")}</div>`,
         );
         break;
       case "share-meeting":
@@ -2008,6 +2061,11 @@ document.addEventListener("change", async (event) => {
       syncURL();
       render();
     }
+    if (el.id === "time-format") {
+      state.timeFormat = el.value === "12" ? "12" : "24";
+      persist();
+      render();
+    }
     if (el.id === "default-view") {
       state.view = el.value;
       persist();
@@ -2078,7 +2136,7 @@ function updateClock() {
   const focus = $(".focus-card");
   if (focus && document.activeElement !== focus) focus.outerHTML = nextCard();
   const summary = $(".my-day");
-  if (summary && !summary.contains?.(document.activeElement) && state.week === monday(today())) {
+  if (summary && !summary.contains?.(document.activeElement) && onHomeWeek()) {
     const expanded = summary.querySelector?.("details")?.open;
     const html = myDayView();
     summary.outerHTML = expanded ? html.replace('<details class="my-day-details">', '<details class="my-day-details" open>') : html;

@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -34,6 +35,11 @@ type Adapter struct {
 	bot  *tgbot.Bot
 	core *botcore.Bot
 	log  *slog.Logger
+
+	// username — имя бота для ссылки в личку; узнаётся при старте.
+	username atomic.Pointer[string]
+	// chats не даёт напоминать о себе в одной группе чаще раза в сутки.
+	chats botcore.GroupChats
 }
 
 // New поднимает адаптер.
@@ -41,6 +47,7 @@ func New(token string, core *botcore.Bot, log *slog.Logger) (*Adapter, error) {
 	a := &Adapter{core: core, log: log}
 	b, err := tgbot.New(token,
 		tgbot.WithDefaultHandler(a.handle),
+		tgbot.WithHTTPClient(pollTimeout, newHTTPClient()),
 		// Список типов апдейтов задаётся явно, а не оставляется на усмотрение
 		// телеграма. Если его не передать, телеграм берёт последнее значение,
 		// когда-либо выставленное для этого токена, — в том числе оставшееся
@@ -91,6 +98,7 @@ func (a *Adapter) diagnose(ctx context.Context) {
 		return
 	}
 	a.log.Info("бот подключён", "имя", "@"+me.Username, "id", me.ID)
+	a.username.Store(&me.Username)
 
 	info, err := a.bot.GetWebhookInfo(ctx)
 	if err != nil {
@@ -177,11 +185,24 @@ func (a *Adapter) handle(ctx context.Context, _ *tgbot.Bot, u *models.Update) {
 	// ответ уходил после всей работы, а работа умеет ходить к вузу за
 	// недостающим месяцем: стоило серверу вуза стать недоступным, и кнопка
 	// «зависала» без единого сообщения.
+	group := ok && !upd.Private
 	if queryID != "" {
-		a.answerCallback(ctx, queryID)
+		toast := ""
+		if group {
+			toast = botcore.GroupChatToast
+		}
+		a.answerCallback(ctx, queryID, toast)
 	}
 	if !ok {
 		a.log.Warn("апдейт без опознаваемого отправителя пропущен", "апдейт", u.ID)
+		return
+	}
+	if group {
+		// Нажатию хватило подсказки, которую видит только нажавший; на
+		// сообщение отвечаем в чат, но не чаще раза в сутки.
+		if queryID == "" {
+			a.refuseGroup(ctx, chatID)
+		}
 		return
 	}
 
@@ -250,7 +271,26 @@ func convert(u *models.Update) (upd botcore.Update, chatID int64, messageID int,
 	return upd, 0, 0, "", false
 }
 
-func (a *Adapter) answerCallback(ctx context.Context, queryID string) {
+// refuseGroup зовёт из группы в личку — не чаще раза в сутки на чат.
+func (a *Adapter) refuseGroup(ctx context.Context, chatID int64) {
+	if !a.chats.Allow(strconv.FormatInt(chatID, 10), time.Now()) {
+		return
+	}
+	a.log.Info("сообщение в группе, зову в личку", "чат", chatID)
+	a.send(ctx, chatID, 0, botcore.Reply{Text: botcore.GroupChatText(a.privateLink())})
+}
+
+// privateLink — ссылка на личный диалог с ботом, если имя уже известно.
+func (a *Adapter) privateLink() string {
+	if name := a.username.Load(); name != nil && *name != "" {
+		return "https://t.me/" + *name
+	}
+	return ""
+}
+
+// answerCallback снимает с кнопки крутилку; непустой text телеграм покажет
+// нажавшему всплывающей подсказкой.
+func (a *Adapter) answerCallback(ctx context.Context, queryID, text string) {
 	// Отдельный короткий контекст: этот вызов не должен ждать вместе с
 	// основной работой — он существует ровно чтобы её не ждал пользователь.
 	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
@@ -258,6 +298,7 @@ func (a *Adapter) answerCallback(ctx context.Context, queryID string) {
 
 	if _, err := a.bot.AnswerCallbackQuery(actx, &tgbot.AnswerCallbackQueryParams{
 		CallbackQueryID: queryID,
+		Text:            text,
 	}); err != nil {
 		a.log.Warn("не удалось ответить на нажатие кнопки", "ошибка", err)
 	}
@@ -306,6 +347,13 @@ func (a *Adapter) send(ctx context.Context, chatID int64, messageID int, r botco
 	}
 
 	if _, err := a.bot.SendMessage(ctx, params); err != nil {
+		// Из группы бота могут выгнать, а кнопки под его старыми сообщениями
+		// там остаются живыми: нажатия доходят, ответить некуда. Сбоем это
+		// не считаем.
+		if IsBlocked(err) {
+			a.log.Info("чат закрыт для бота, ответ не отправлен", "чат", chatID, "ошибка", err)
+			return false
+		}
 		a.log.Error("отправка сообщения", "чат", chatID, "ошибка", err)
 		return false
 	}

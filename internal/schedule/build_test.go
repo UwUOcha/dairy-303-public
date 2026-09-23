@@ -392,3 +392,18 @@ func TestSessionKindTakesOnlyExams(t *testing.T) {
 		t.Error("IsSession расходится с SessionKind")
 	}
 }
+
+func TestGapsWithoutSlotNumbers(t *testing.T) {
+	items := []Item{
+		{Lesson: Lesson{MinuteFrom: 480, MinuteTo: 600}},
+		{Lesson: Lesson{MinuteFrom: 490, MinuteTo: 550}},
+		{Lesson: Lesson{MinuteFrom: 620, MinuteTo: 700}},
+		{Lesson: Lesson{MinuteFrom: 780, MinuteTo: 870}},
+	}
+	markGaps(items)
+	for i, want := range []int{0, 0, 0, 80} {
+		if items[i].GapBefore != want {
+			t.Fatalf("Окно %d: %d вместо %d", i, items[i].GapBefore, want)
+		}
+	}
+}

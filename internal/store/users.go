@@ -188,7 +188,7 @@ func (db *DB) SaveUser(ctx context.Context, u User) error {
 		}
 		if err == nil && previousGroupID != u.GroupID {
 			if _, err := tx.ExecContext(ctx,
-				`DELETE FROM outbox WHERE platform = ? AND ext_id = ?`, u.Platform, u.ExtID); err != nil {
+				`DELETE FROM outbox WHERE kind='change' AND platform = ? AND ext_id = ?`, u.Platform, u.ExtID); err != nil {
 				return err
 			}
 		}

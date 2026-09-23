@@ -408,3 +408,34 @@ func TestGroupSearchFindsSubgroup(t *testing.T) {
 		t.Errorf("несуществующая подгруппа не должна находиться: %+v", none)
 	}
 }
+
+func TestNowKeepsLessonsAndClockInUniversityTimezone(t *testing.T) {
+	_, db, sync := testServer(t)
+	ctx := context.Background()
+	loc, err := time.LoadLocation("Asia/Tokyo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().In(loc)
+	minute := at.Hour()*60 + at.Minute()
+	date := schedule.FormatDate(at)
+	ms := importdata.MonthSchedule{GroupID: 39, Year: at.Year(), Month: int(at.Month()),
+		LessonTimes: []importdata.LessonTime{{ID: 1, MinuteFrom: max(0, minute-30), MinuteTo: min(1440, minute+60)}},
+		Lessons:     []importdata.Lesson{{ID: 1, GroupID: 39, Date: date, LessonTimeID: 1, Discipline: "Химия"}}}
+	if _, err := db.SaveMonth(ctx, ms); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(NewServer(db, sync, loc, time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	defer server.Close()
+	for _, tz := range []string{"0", "-720", "840"} {
+		var got NowResponse
+		code := get(t, server, PathNow, "group=39&tz="+tz, &got)
+		if code != 200 || got.Day.Date != date || got.Today != date || got.Now.Current == nil || got.Now.Current.ID != 1 {
+			t.Fatalf("tz=%s: %+v, статус %d", tz, got, code)
+		}
+		_, offset := got.Now.At.Zone()
+		if offset != 9*3600 {
+			t.Fatalf("Часы и занятия в разных поясах: %+v", got.Now)
+		}
+	}
+}

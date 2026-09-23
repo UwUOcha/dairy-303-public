@@ -31,7 +31,7 @@ func statsServer(t *testing.T) (*httptest.Server, *Server, *logbuf.Ring, *stubSy
 	sync := &stubSync{}
 	srv := NewServer(db, sync, time.UTC, 24*time.Hour, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ring := logbuf.NewRing(logbuf.Capacity)
-	srv.Diagnostics(ring, time.Now().Add(-90*time.Minute))
+	srv.Diagnostics(ring, time.Now().Add(-90*time.Minute), 2)
 
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)

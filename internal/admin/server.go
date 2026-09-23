@@ -22,11 +22,12 @@ var assetsFS embed.FS
 
 // Server — панель целиком: страница, её JSON и фоновый съём метрик.
 type Server struct {
-	cfg     config.Admin
-	rasp    *api.Client
-	sampler *Sampler
-	history *History
-	log     *slog.Logger
+	cfg            config.Admin
+	rasp           *api.Client
+	sampler        *Sampler
+	historySampler *Sampler
+	history        *History
+	log            *slog.Logger
 
 	index *template.Template
 
@@ -46,12 +47,13 @@ func New(cfg config.Admin, log *slog.Logger, history *History) (*Server, error) 
 		return nil, err
 	}
 	return &Server{
-		cfg:     cfg,
-		rasp:    api.NewClient(cfg.SocketPath),
-		sampler: NewSampler(cfg.ProcPath, cfg.DiskPath),
-		history: history,
-		log:     log,
-		index:   index,
+		cfg:            cfg,
+		rasp:           api.NewClient(cfg.SocketPath),
+		sampler:        NewSampler(cfg.ProcPath, cfg.DiskPath),
+		historySampler: NewSampler(cfg.ProcPath, cfg.DiskPath),
+		history:        history,
+		log:            log,
+		index:          index,
 	}, nil
 }
 
@@ -147,7 +149,11 @@ func (s *Server) handleHistory(w http.ResponseWriter, r *http.Request) {
 // view собирает текущую картину: свежие метрики машины и последний снимок
 // демона.
 func (s *Server) view(ctx context.Context) View {
-	host := s.sampler.Sample()
+	return s.sampleView(ctx, s.sampler)
+}
+
+func (s *Server) sampleView(ctx context.Context, sampler *Sampler) View {
+	host := sampler.Sample()
 	stats, at, errText := s.stats(ctx)
 	v := View{
 		Now:       time.Now().Unix(),
@@ -190,11 +196,10 @@ func (s *Server) SampleInterval() time.Duration { return s.cfg.SampleInterval }
 
 // Sample снимает точку истории и записывает её.
 //
-// Метрики машины берутся тем же съёмщиком, что и для страницы: занятость
-// процессора считается от предыдущего замера, и заводить второй счётчик
-// значило бы получить два расходящихся числа на одной панели.
+// История считает CPU между своими замерами. Просмотры страницы не
+// меняют начало этого интервала.
 func (s *Server) Sample(ctx context.Context) error {
-	view := s.view(ctx)
+	view := s.sampleView(ctx, s.historySampler)
 
 	sample := Sample{
 		At:         time.Now().Unix(),

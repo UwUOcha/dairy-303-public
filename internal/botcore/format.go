@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/UwUOcha/dairy-303-public/internal/api"
+	"github.com/UwUOcha/dairy-303-public/internal/profile"
 	"github.com/UwUOcha/dairy-303-public/internal/schedule"
 )
 
@@ -191,13 +192,14 @@ func writeItems(b *strings.Builder, items []schedule.Item, subgroup int64) {
 
 		// Пустая пара — это заведённое расписанием окно; показать её надо,
 		// но подробностей у неё нет.
+		head := "<b>Занятие</b> · " + esc(it.TimeLabel)
+		if it.Number > 0 {
+			head = fmt.Sprintf("<b>%d пара</b> · %s", it.Number, esc(it.TimeLabel))
+		}
 		if it.Flags.Has(schedule.FlagEmpty) {
-			fmt.Fprintf(b, "<b>%d пара</b> · %s\n<blockquote>Окно</blockquote>\n",
-				it.Number, esc(it.TimeLabel))
+			fmt.Fprintf(b, "%s\n<blockquote>Окно</blockquote>\n", head)
 			continue
 		}
-
-		head := fmt.Sprintf("<b>%d пара</b> · %s", it.Number, esc(it.TimeLabel))
 		if note := audienceNote(it.Lesson, subgroup); note != "" {
 			head += " · <i>" + esc(note) + "</i>"
 		}
@@ -275,11 +277,14 @@ func FormatWeek(r api.WeekResponse) string {
 			if i > 0 {
 				b.WriteString("\n")
 			}
+			if it.Number > 0 {
+				fmt.Fprintf(&b, "%d · ", it.Number)
+			}
 			if it.Flags.Has(schedule.FlagEmpty) {
-				fmt.Fprintf(&b, "%d · <i>окно</i>", it.Number)
+				b.WriteString("<i>окно</i>")
 				continue
 			}
-			fmt.Fprintf(&b, "%d · %s · <b>%s</b>", it.Number, esc(startTime(it)), esc(it.Discipline))
+			fmt.Fprintf(&b, "%s · <b>%s</b>", esc(startTime(it)), esc(it.Discipline))
 			// Тип занятия стоит сразу за названием, как и в дневном виде:
 			// «лекция или практика» — первое, что уточняют про пару, и по
 			// одному названию дисциплины этого не понять.
@@ -303,6 +308,13 @@ func FormatWeek(r api.WeekResponse) string {
 	return b.String()
 }
 
+func pairName(number int) string {
+	if number > 0 {
+		return fmt.Sprintf("%d пара", number)
+	}
+	return "занятие"
+}
+
 // FormatNow отвечает на вопрос «что сейчас».
 func FormatNow(r api.NowResponse) string {
 	var b strings.Builder
@@ -313,7 +325,7 @@ func FormatNow(r api.NowResponse) string {
 	case r.Now.Current != nil:
 		it := r.Now.Current
 		left := it.MinuteTo - (r.Now.At.Hour()*60 + r.Now.At.Minute())
-		fmt.Fprintf(&b, "Сейчас идёт <b>%d пара</b>, до конца %s\n", it.Number, esc(duration(left)))
+		fmt.Fprintf(&b, "Сейчас идёт <b>%s</b>, до конца %s\n", pairName(it.Number), esc(duration(left)))
 		b.WriteString("<blockquote>")
 		fmt.Fprintf(&b, "<b>%s</b>", esc(it.Discipline))
 		if it.Classroom != "" {
@@ -340,8 +352,8 @@ func FormatNow(r api.NowResponse) string {
 
 	if r.Now.Next != nil {
 		it := r.Now.Next
-		fmt.Fprintf(&b, "\nЧерез %s — <b>%d пара</b> в %s\n",
-			esc(duration(r.Now.MinutesToNext)), it.Number, esc(startTime(*it)))
+		fmt.Fprintf(&b, "\nЧерез %s — <b>%s</b> в %s\n",
+			esc(duration(r.Now.MinutesToNext)), pairName(it.Number), esc(startTime(*it)))
 		b.WriteString("<blockquote>")
 		fmt.Fprintf(&b, "<b>%s</b>", esc(it.Discipline))
 		if it.Classroom != "" {
@@ -377,7 +389,7 @@ func writeFreshness(b *strings.Builder, f api.Freshness) {
 		return
 	}
 	fmt.Fprintf(b, "\n<i>⚠️ Данные от %s — давно не обновлялись, возможны изменения.</i>",
-		esc(f.FetchedAt.Format("02.01 15:04")))
+		esc(f.FetchedAt.In(profile.Current().Location()).Format("02.01 15:04")))
 }
 
 // groupLine — подпись «за кого» показано расписание.
@@ -595,12 +607,16 @@ func FormatChangeDay(r api.ChangeDayResponse) string {
 func changeLines(d schedule.Day, subgroup int64) []string {
 	out := make([]string, 0, len(d.Items))
 	for _, it := range d.Items {
+		prefix := ""
+		if it.Number > 0 {
+			prefix = fmt.Sprintf("%d · ", it.Number)
+		}
 		if it.Flags.Has(schedule.FlagEmpty) {
-			out = append(out, fmt.Sprintf("%d · окно", it.Number))
+			out = append(out, prefix+"окно")
 			continue
 		}
 		parts := []string{
-			fmt.Sprintf("%d · %s", it.Number, lessonTime(it)),
+			prefix + lessonTime(it),
 			orDash(it.Discipline, "Без названия"),
 		}
 		if it.ClassType != "" {

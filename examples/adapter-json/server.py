@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Reference adapter. Replace read_data() with your university's data acquisition."""
+"""Учебный адаптер. Для своего вуза перепишите функции из раздела «ВАША ЧАСТЬ»."""
 import datetime as dt
 import hmac
 import json
@@ -9,9 +9,52 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 
+# ─── ВАША ЧАСТЬ ──────────────────────────────────────────────────────────────
+# Здесь адаптер узнаёт расписание своего вуза. В примере оно читается из
+# data.json; в настоящем адаптере здесь запросы к API вуза, разбор HTML или
+# Excel. Остальной файл менять не нужно.
+
 def read_data():
     return json.loads(Path(os.getenv("ADAPTER_DATA", str(Path(__file__).with_name("data.json")))).read_text())
 
+
+def load_source():
+    """Постоянное имя установки и часовой пояс вуза (IANA)."""
+    data = read_data()
+    return data["source"], data["timezone"]
+
+
+def load_catalog():
+    """Все факультеты и группы вуза: (departments, groups)."""
+    data = read_data()
+    return data["departments"], data["groups"]
+
+
+def load_lessons(group, start, end):
+    """Пары группы с даты start по end включительно и её подгруппы: (lessons, subgroups).
+
+    Каждая пара — словарь с id, date, start, end, subject и необязательными
+    kind, room, teachers, subgroup_id. id должен быть одинаковым при каждом
+    запросе одной и той же пары.
+    """
+    data = read_data()
+    lessons = []
+    for day_offset in range((end - start).days + 1):
+        day = start + dt.timedelta(days=day_offset)
+        for item in data["weekly_lessons"]:
+            if item["group_id"] == group and item["weekday"] == day.isoweekday():
+                lesson = {k: v for k, v in item.items() if k not in {"weekday", "group_id"}}
+                lesson.update(id=item["id"] + ":" + day.isoformat(), date=day.isoformat(), anchor_group_id=group)
+                lessons.append(lesson)
+    return lessons, data.get("subgroups", {}).get(group, [])
+
+
+def load_teachers():
+    """Необязательный справочник преподавателей. Не нужен — верните None."""
+    return read_data()["teachers"]
+
+
+# ─── ОБЩАЯ ЧАСТЬ: HTTP-ответы ядру по контракту v1 ──────────────────────────
 
 def now():
     return dt.datetime.now(dt.timezone.utc).isoformat().replace("+00:00", "Z")
@@ -26,13 +69,17 @@ class Handler(BaseHTTPRequestHandler):
         if token and not hmac.compare_digest(self.headers.get("Authorization", ""), "Bearer " + token):
             return self.error(401, "unauthorized")
         try:
-            data = read_data()
             if path.path == "/v1/info":
-                return self.reply(200, {"version": "1", "source": data["source"], "timezone": data["timezone"], "staff_directory": True})
+                source, timezone = load_source()
+                return self.reply(200, {"version": "1", "source": source, "timezone": timezone, "staff_directory": load_teachers() is not None})
             if path.path == "/v1/catalog":
-                return self.reply(200, {"complete": True, "fetched_at": now(), "departments": data["departments"], "groups": data["groups"]})
+                departments, groups = load_catalog()
+                return self.reply(200, {"complete": True, "fetched_at": now(), "departments": departments, "groups": groups})
             if path.path == "/v1/teachers":
-                return self.reply(200, {"complete": True, "fetched_at": now(), "teachers": data["teachers"]})
+                teachers = load_teachers()
+                if teachers is None:
+                    return self.error(501, "not_supported")
+                return self.reply(200, {"complete": True, "fetched_at": now(), "teachers": teachers})
             if path.path == "/v1/schedule":
                 query = parse_qs(path.query, strict_parsing=True)
                 if set(query) != {"group", "from", "to"} or any(len(v) != 1 for v in query.values()):
@@ -41,22 +88,18 @@ class Handler(BaseHTTPRequestHandler):
                 start, end = dt.date.fromisoformat(first), dt.date.fromisoformat(last)
                 if not 0 <= (end - start).days <= 30:
                     return self.error(400, "invalid_request")
-                if group not in {g["id"] for g in data["groups"]}:
+                if group not in {g["id"] for g in load_catalog()[1]}:
                     return self.error(404, "not_found")
-                lessons = []
-                for day_offset in range((end - start).days + 1):
-                    day = start + dt.timedelta(days=day_offset)
-                    for item in data["weekly_lessons"]:
-                        if item["group_id"] == group and item["weekday"] == day.isoweekday():
-                            lesson = {k: v for k, v in item.items() if k not in {"weekday", "group_id"}}
-                            lesson.update(id=item["id"] + ":" + day.isoformat(), date=day.isoformat(), anchor_group_id=group)
-                            lessons.append(lesson)
-                return self.reply(200, {"group_id": group, "from": first, "to": last, "complete": True, "status": "published", "fetched_at": now(), "lessons": lessons, "subgroups": data.get("subgroups", {}).get(group, []), "workdays": [1, 2, 3, 4, 5]})
+                lessons, subgroups = load_lessons(group, start, end)
+                return self.reply(200, {"group_id": group, "from": first, "to": last, "complete": True, "status": "published", "fetched_at": now(), "lessons": lessons, "subgroups": subgroups, "workdays": [1, 2, 3, 4, 5]})
             return self.error(404, "not_found")
         except (ValueError, KeyError):
             return self.error(400, "invalid_request")
         except OSError:
             return self.error(503, "unavailable")
+        except Exception:
+            # Сбой при получении данных вуза: ядро сохранит прежнее расписание.
+            return self.error(502, "upstream_error")
 
     def error(self, status, code):
         self.reply(status, {"code": code, "message": code})

@@ -11,9 +11,9 @@ import (
 	"github.com/UwUOcha/dairy-303-public/internal/store"
 )
 
-// SyncStaffDirectory fetches the whole directory at most once per calendar
-// month. The attempt is persisted too, so outages and restarts cannot create
-// repeated upstream requests. Failed refreshes leave saved identities intact.
+// SyncStaffDirectory обновляет справочник по расписанию. После ошибки
+// повторяет попытку не чаще раза в сутки (либо заданного меньшего интервала).
+// Отметка попытки хранится в базе и переживает перезапуск.
 func (s *Syncer) SyncStaffDirectory(ctx context.Context) error {
 	work, cancel := context.WithTimeout(ctx, s.opt.MonthTimeout)
 	defer cancel()
@@ -33,7 +33,11 @@ func (s *Syncer) SyncStaffDirectory(ctx context.Context) error {
 			}
 			if stamp, err := strconv.ParseInt(raw, 10, 64); err == nil {
 				last := time.Unix(stamp, 0).In(s.opt.Location)
-				if (s.opt.StaffInterval > 0 && now.Sub(last) < s.opt.StaffInterval) || (s.opt.StaffInterval == 0 && last.Year() == now.Year() && last.Month() == now.Month()) {
+				if key == store.MetaStaffAttemptedAt {
+					if now.Sub(last) < s.staffRetryInterval() {
+						return nil, nil
+					}
+				} else if (s.opt.StaffInterval > 0 && now.Sub(last) < s.opt.StaffInterval) || (s.opt.StaffInterval == 0 && last.Year() == now.Year() && last.Month() == now.Month()) {
 					return nil, nil
 				}
 			}
@@ -75,11 +79,19 @@ func (s *Syncer) staffLoop(ctx context.Context) {
 		}
 		now := s.Now()
 		next := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, s.opt.Location)
-		if s.opt.StaffInterval > 0 {
-			next = now.Add(s.opt.StaffInterval)
+		// Проверяем и повтор после ошибки, не дожидаясь нового месяца.
+		if retry := now.Add(s.staffRetryInterval()); retry.Before(next) {
+			next = retry
 		}
 		if !sleep(ctx, next.Sub(now)) {
 			return
 		}
 	}
+}
+
+func (s *Syncer) staffRetryInterval() time.Duration {
+	if s.opt.StaffInterval > 0 && s.opt.StaffInterval < 24*time.Hour {
+		return s.opt.StaffInterval
+	}
+	return 24 * time.Hour
 }

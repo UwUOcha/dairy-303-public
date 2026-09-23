@@ -320,6 +320,11 @@ func (a *Adapter) askSubscribe(ctx context.Context, peer int, lead string) {
 		a.log.Warn("вконтакте: некуда звать подписываться", "ошибка", err)
 	}
 	if err := a.post(ctx, peer, subscribeText(g, lead), subscribeKeyboard(g)); err != nil {
+		if leftChat(err) {
+			a.log.Info("вконтакте: беседа закрыта для бота, просьба подписаться не отправлена",
+				"диалог", peer, "ошибка", err)
+			return
+		}
 		a.log.Error("вконтакте: просьба подписаться", "диалог", peer, "ошибка", err)
 	}
 }

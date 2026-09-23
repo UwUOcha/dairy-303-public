@@ -215,7 +215,10 @@ func (db *DB) SaveMonth(ctx context.Context, ms importdata.MonthSchedule) (chang
 			}
 		}
 		before = visible
-		touched = changedDays(before, lessonsFrom(ms.Lessons, window), today)
+		touched = changedDays(before, snapshotLessons(ms), today)
+		// Граница предыдущего отпечатка могла устареть за ночь. Сообщать
+		// стоит только о правках, которые ещё затрагивают сегодня или будущее.
+		notify = len(touched) > 0
 	}
 
 	err = db.tx(ctx, func(tx *sql.Tx) error {

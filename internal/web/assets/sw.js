@@ -1,6 +1,6 @@
 // A versioned app shell only. API responses use the explicit, bounded device
 // cache in data.mjs, with an offline label; they never masquerade as fresh.
-const CACHE = "mp-shell-v31";
+const CACHE = "mp-shell-v34";
 const FILES = [
   "/",
   "/app.css",

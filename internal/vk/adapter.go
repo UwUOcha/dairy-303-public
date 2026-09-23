@@ -11,6 +11,7 @@ package vk
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -62,6 +63,9 @@ type Adapter struct {
 	// comm — кто мы такие во ВКонтакте; узнаётся лениво и один раз.
 	commMu sync.Mutex
 	comm   group
+
+	// chats не даёт напоминать о себе в одной беседе чаще раза в сутки.
+	chats botcore.GroupChats
 }
 
 // New поднимает адаптер.
@@ -166,6 +170,12 @@ func (a *Adapter) onMessage(ctx context.Context, obj events.MessageNewObject) {
 		Text:     m.Text,
 		Private:  m.PeerID == m.FromID,
 	}
+	if !upd.Private {
+		// В беседе ни подписку не проверяем, ни сценарии не запускаем —
+		// только зовём в личку (см. botcore/groupchat.go).
+		go a.refuseChat(ctx, m.PeerID)
+		return
+	}
 
 	// Сообщением приходят только команды, названия групп и кнопки нижнего
 	// меню — последние botcore разбирает по подписи, как обычный текст. Наши
@@ -198,7 +208,13 @@ func (a *Adapter) onEvent(ctx context.Context, obj events.MessageEventObject) {
 	// Ответить на нажатие надо первым делом и любой ценой: пока бот молчит,
 	// ВКонтакте крутит на кнопке часик, а потом показывает человеку ошибку.
 	// Ровно та же история, что и с answerCallbackQuery у телеграма.
-	a.answer(ctx, obj)
+	if obj.PeerID != obj.UserID {
+		// Нажатие в беседе: подсказку видит только нажавший, в беседу ничего
+		// не уходит.
+		a.answer(ctx, obj, botcore.GroupChatToast)
+		return
+	}
+	a.answer(ctx, obj, "")
 
 	if cb == "" {
 		return
@@ -215,21 +231,45 @@ func (a *Adapter) onEvent(ctx context.Context, obj events.MessageEventObject) {
 	}, obj.PeerID, obj.ConversationMessageID)
 }
 
-// answer снимает с кнопки крутилку.
-func (a *Adapter) answer(ctx context.Context, obj events.MessageEventObject) {
+// answer снимает с кнопки крутилку; непустой toast ВКонтакте покажет
+// нажавшему всплывающей плашкой.
+func (a *Adapter) answer(ctx context.Context, obj events.MessageEventObject, toast string) {
 	// Отдельный короткий контекст: этот вызов не должен ждать вместе с
 	// основной работой — он существует ровно чтобы её не ждал пользователь.
 	actx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
 
-	_, err := a.vk.MessagesSendMessageEventAnswer(vkapi.Params{
+	params := vkapi.Params{
 		"event_id": obj.EventID,
 		"user_id":  obj.UserID,
 		"peer_id":  obj.PeerID,
-	}.WithContext(actx))
+	}
+	if toast != "" {
+		params["event_data"] = snackbar(toast)
+	}
+	_, err := a.vk.MessagesSendMessageEventAnswer(params.WithContext(actx))
 	if err != nil {
 		a.log.Warn("вконтакте: не удалось ответить на нажатие кнопки", "ошибка", err)
 	}
+}
+
+// snackbar собирает event_data для всплывающей плашки.
+func snackbar(text string) string {
+	b, _ := json.Marshal(map[string]string{"type": "show_snackbar", "text": text})
+	return string(b)
+}
+
+// refuseChat зовёт из беседы в личку — не чаще раза в сутки на беседу.
+func (a *Adapter) refuseChat(ctx context.Context, peer int) {
+	if !a.chats.Allow(strconv.Itoa(peer), time.Now()) {
+		return
+	}
+	link := ""
+	if g, err := a.identify(ctx); err == nil && g.screen != "" {
+		link = "vk.me/" + g.screen
+	}
+	a.log.Info("вконтакте: сообщение в беседе, зову в личку", "диалог", peer)
+	a.send(ctx, peer, 0, botcore.Reply{Text: botcore.GroupChatText(link)})
 }
 
 // process прогоняет событие через сценарии и отправляет, что вышло.
@@ -307,6 +347,10 @@ func (a *Adapter) send(ctx context.Context, peer, cmID int, r botcore.Reply) {
 		kb = p.panel
 	}
 	if err := a.post(ctx, peer, text, kb); err != nil {
+		if leftChat(err) {
+			a.log.Info("вконтакте: беседа закрыта для бота, ответ не отправлен", "диалог", peer, "ошибка", err)
+			return
+		}
 		a.log.Error("вконтакте: отправка сообщения", "диалог", peer, "ошибка", err)
 		return
 	}
@@ -392,6 +436,18 @@ func (a *Adapter) post(ctx context.Context, peer int, text string, kb *object.Me
 	}
 	_, err := a.vk.MessagesSend(params)
 	return err
+}
+
+// leftChat распознаёт отказ писать в беседу, из которой сообщество исключили.
+//
+// Кнопки под старыми сообщениями там остаются живыми, и нажатия продолжают
+// приходить, а ответить некуда. Это не сбой, а следствие чужого решения.
+func leftChat(err error) bool {
+	if errors.Is(err, vkapi.ErrMessagesChatUserNoAccess) {
+		return true
+	}
+	return errors.Is(err, vkapi.ErrPermission) &&
+		strings.Contains(err.Error(), "kicked out of the conversation")
 }
 
 // Send отправляет сообщение по инициативе бота — нужно для утренней рассылки.

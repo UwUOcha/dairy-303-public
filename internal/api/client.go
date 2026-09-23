@@ -186,6 +186,7 @@ func (c *Client) Week(ctx context.Context, groupID, subgroupID int64, monday str
 }
 
 // Now отвечает, что идёт сейчас и что дальше, в часовом поясе пользователя.
+// Время ответа и занятий — в поясе вуза; tzOffset сохранён для совместимости вызовов.
 func (c *Client) Now(ctx context.Context, groupID, subgroupID int64, tzOffset int) (NowResponse, error) {
 	q := idParams(map[string]int64{"group": groupID, "subgroup": subgroupID, "tz": int64(tzOffset)})
 	var out NowResponse

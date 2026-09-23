@@ -1,6 +1,7 @@
 package vk
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -84,4 +85,33 @@ func TestNewRejectsEmptyToken(t *testing.T) {
 // vkErr собирает ошибку так, как её отдаёт vksdk: обёрнутой в контекст вызова.
 func vkErr(code vkapi.ErrorType) error {
 	return fmt.Errorf("api.DefaultHandler: %w", &vkapi.Error{Code: code, Message: "тест"})
+}
+
+func TestLeftChat(t *testing.T) {
+	kicked := fmt.Errorf("api.DefaultHandler: %w", &vkapi.Error{
+		Code:    vkapi.ErrPermission,
+		Message: "Permission to perform this action is denied: the user was kicked out of the conversation",
+	})
+	if !leftChat(kicked) {
+		t.Error("исключение из беседы не распознано — каждое нажатие старой кнопки уйдёт в журнал ошибкой")
+	}
+	if !leftChat(vkErr(vkapi.ErrMessagesChatUserNoAccess)) {
+		t.Error("нет доступа к беседе не распознано")
+	}
+	if leftChat(vkErr(vkapi.ErrPermission)) {
+		t.Error("любой отказ в правах принят за исключение из беседы")
+	}
+	if leftChat(vkErr(vkapi.ErrMessagesUserBlocked)) {
+		t.Error("блокировка человеком принята за исключение из беседы")
+	}
+}
+
+func TestSnackbarEventData(t *testing.T) {
+	var got map[string]string
+	if err := json.Unmarshal([]byte(snackbar("привет")), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["type"] != "show_snackbar" || got["text"] != "привет" {
+		t.Errorf("event_data = %v", got)
+	}
 }

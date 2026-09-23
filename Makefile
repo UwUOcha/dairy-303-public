@@ -39,7 +39,7 @@ test-tools:
 
 # Node.js проверяет интерфейс.
 test-ui:
-	node --test tests/admin-ui.test.cjs tests/web.test.mjs tests/pwa.test.mjs
+	node --test tests/admin-ui.test.cjs tests/web.test.mjs tests/login-ui.test.mjs tests/pwa.test.mjs
 
 vet:
 	$(GO) vet ./...

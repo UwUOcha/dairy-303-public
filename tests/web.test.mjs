@@ -418,6 +418,7 @@ test("calendar uses UTC, escapes input, and folds Cyrillic at 75 bytes", () => {
     },
     "Моя группа",
     new Date("2026-09-01T00:00:00Z"),
+    "Europe/Moscow",
   );
   assert.match(calendar, /DTSTART:20260907T053000Z/);
   assert.match(calendar, /DTEND:20260907T070500Z/);
@@ -608,6 +609,7 @@ async function appHarness({
   };
   const context = vm.createContext({
     ...model,
+    formatClock: model.clock,
     nextThemeValue,
     ...ux,
     minutesNow: clockMinute,
@@ -915,6 +917,9 @@ test("day tabs start adjacent weeks on Monday and return to today", async () => 
   const now = () => "2026-09-12"; // Saturday: the user's regression example.
   const app = await appHarness({dateNow: now});
   await app.click({ action: "view", view: "day" });
+  // В субботу демо-пар нет, и вид «День» сам уходит на понедельник, поэтому
+  // субботу открываем явно.
+  await app.click({ action: "calendar", date: now() });
   const monday = model.monday(now());
   const tabs = () =>
     app
@@ -1715,15 +1720,16 @@ test("my day distinguishes missed slots from breaks", () => {
 });
 
 test("opening day mode selects today, retains explicit shared dates and marks today while another day is selected", async () => {
-  const date=model.today(), start=model.monday(date);
-  const app=await appHarness({query:`?group=39&week=${start}`});
+  // Среда с парами до их начала: вид «День» открывает сегодняшний день.
+  const date="2026-09-09", start=model.monday(date);
+  const app=await appHarness({dateNow:()=>date,clockMinute:()=>0,query:`?group=39&week=${start}`});
   await app.click({action:"view",view:"day"});
   assert.equal(new URLSearchParams(app.location.search).get("date"),date);
   assert.match(app.element("#app").innerHTML,new RegExp(`data-date="${date}" class="active today"[^>]*aria-current="date"`));
   const other=model.shift(date,date===start?1:-1);
   await app.click({action:"day",date:other});
   assert.match(app.element("#app").innerHTML,new RegExp(`data-date="${date}" class="today"[^>]*aria-pressed="false"`));
-  const shared=await appHarness({query:`?group=39&date=${other}`});
+  const shared=await appHarness({dateNow:()=>date,clockMinute:()=>0,query:`?group=39&date=${other}`});
   assert.equal(new URLSearchParams(shared.location.search).get("date"),other);
   await app.click({action:"view",view:"week"});
   await app.click({action:"view",view:"day"});
@@ -1749,12 +1755,40 @@ test("my day opens a future week and explains missing coverage and failed search
 });
 
 
-test("Sunday remains today even when the API omits a non-study day", async () => {
+test("an empty Sunday stays reachable even when the API omits a non-study day", async () => {
   const app=await appHarness({dateNow:()=>"2026-09-13",query:"?group=39&week=2026-09-07"});
   await app.click({action:"view",view:"day"});
+  assert.equal(new URLSearchParams(app.location.search).get("date"),"2026-09-14");
+  await app.click({action:"calendar",date:"2026-09-13"});
   assert.equal(new URLSearchParams(app.location.search).get("date"),"2026-09-13");
   assert.match(app.element("#app").innerHTML,/data-date="2026-09-13" class="active today"/);
   assert.match(app.element("#app").innerHTML,/Занятий на этот день нет/);
+});
+
+test("the day view skips a finished today to the next study day, across weeks too", async () => {
+  const date = () => new URLSearchParams(app.location.search).get("date");
+  let now="2026-09-09", minute=1400;
+  let app=await appHarness({dateNow:()=>now,clockMinute:()=>minute});
+  await app.click({action:"view",view:"day"});
+  assert.equal(date(),"2026-09-10");
+  assert.match(app.element("#app").innerHTML,/class="my-day"/);
+  assert.doesNotMatch(app.element("#app").innerHTML,/data-action="today"/);
+  // Выбранный руками день остаётся, даже если он прошёл.
+  await app.click({action:"day",date:"2026-09-09"});
+  assert.equal(date(),"2026-09-09");
+  assert.match(app.element("#app").innerHTML,/data-action="today"/);
+  await app.click({action:"today"});
+  assert.equal(date(),"2026-09-10");
+  // Пятничные пары кончились, суббота пустая: открывается понедельник.
+  now="2026-09-11";
+  app=await appHarness({dateNow:()=>now,clockMinute:()=>minute});
+  await app.click({action:"view",view:"day"});
+  assert.equal(date(),"2026-09-14");
+  assert.equal(new URLSearchParams(app.location.search).get("week"),"2026-09-14");
+  assert.match(app.element("#app").innerHTML,/class="my-day"/);
+  // Ссылка на конкретный день открывает именно его.
+  const shared=await appHarness({dateNow:()=>now,clockMinute:()=>minute,query:"?group=39&date=2026-09-10"});
+  assert.equal(new URLSearchParams(shared.location.search).get("date"),"2026-09-10");
 });
 
 test("daily summary rolls to the next study day at lesson end without another request", async () => {
@@ -1987,4 +2021,92 @@ test("calendar tracks the selected day across a month boundary and distinguishes
   assert.match(calendar, /class="selected active"[^>]*data-date="2026-10-01"[^>]*aria-pressed="true"/);
   assert.match(calendar, /class="outside-month selected today"[^>]*data-date="2026-09-30"[^>]*aria-current="date"/);
   assert.match(calendar, /class="outside-month"[^>]*data-date="2026-11-01"/);
+});
+
+
+test("формат времени учитывает полночь, полдень и использует 24 часа по умолчанию", () => {
+  assert.equal(model.clock(810), "13:30");
+  for (const [minute, expected] of [[0, "12:00 AM"], [720, "12:00 PM"], [810, "1:30 PM"], [1439, "11:59 PM"]]) {
+    assert.equal(model.clock(minute, "12"), expected);
+  }
+  assert.equal(model.clock(0, "24"), "00:00");
+  assert.equal(model.clock(810, "24"), "13:30");
+  const saved = memory();
+  assert.equal(ux.readPreferences(saved).timeFormat, "24");
+  saved.setItem("mp.preferences.v1", JSON.stringify({timeFormat: "auto"}));
+  assert.equal(ux.readPreferences(saved).timeFormat, "24");
+  saved.setItem("mp.preferences.v1", JSON.stringify({timeFormat: "invalid"}));
+  assert.equal(ux.readPreferences(saved).timeFormat, "24");
+});
+
+test("формат времени переключается в настройках и сохраняется после перезагрузки", async () => {
+  const saved = memory();
+  let app = await appHarness({ saved });
+  await app.click({ route: "settings" });
+  assert.match(app.element("#app").innerHTML, /id="time-format"[\s\S]*?value="24" selected/);
+  await app.listeners.change({ target: { id: "time-format", value: "12" } });
+  assert.equal(JSON.parse(saved.getItem("demo.mp.preferences.v1")).timeFormat, "12");
+  await app.click({ route: "schedule" });
+  assert.match(app.element("#app").innerHTML, /\d:\d{2} (AM|PM)/);
+  app = await appHarness({ saved });
+  assert.match(app.element("#app").innerHTML, /\d:\d{2} (AM|PM)/);
+  await app.click({ route: "settings" });
+  await app.listeners.change({ target: { id: "time-format", value: "24" } });
+  await app.click({ route: "schedule" });
+  assert.doesNotMatch(app.element("#app").innerHTML, /\d:\d{2} (AM|PM)/);
+});
+
+test("Экспорт календаря учитывает пояс вуза и сезонное смещение", () => {
+  for (const [timezone, date, expected] of [
+    ["UTC", "2026-09-07", "20260907T083000Z"],
+    ["Asia/Kolkata", "2026-09-07", "20260907T030000Z"],
+    ["Asia/Tokyo", "2026-09-07", "20260906T233000Z"],
+    ["Europe/Berlin", "2026-01-07", "20260107T073000Z"],
+    ["Europe/Berlin", "2026-07-07", "20260707T063000Z"],
+  ]) {
+    const calendar = model.ics({days: [{items: [lesson(510, 600, {date})]}]}, "Группа", new Date(), timezone);
+    assert.ok(calendar.includes("DTSTART:" + expected), calendar);
+  }
+});
+
+test("Сайт подписывает время часовым поясом профиля", async () => {
+  const app = await appHarness({profile: {timezone: "Asia/Kolkata"}, query: "?group=39&compare=232&mode=free", hash: "#compare"});
+  const html = app.element("#app").innerHTML;
+  assert.doesNotMatch(html, /МСК/);
+  assert.match(html, /до 18:00 Asia\/Kolkata/);
+});
+
+test("Назад сохраняет настройки, отсутствующие в адресе, и применяет явные параметры", async () => {
+  const saved = memory();
+  saved.setItem("demo.mp.preferences.v1", JSON.stringify({
+    group: 39, compare: 232, view: "day", compareMode: "free",
+    proximity: "room", minMeeting: 90, meetingEnd: 1320,
+  }));
+  const app = await appHarness({saved});
+  await app.click({route: "settings"});
+  await app.listeners.change({target: {id: "theme-select", value: "dark"}});
+  app.location.search = "?group=39&week=2026-09-07";
+  app.location.hash = "#stats";
+  await app.listeners["window:popstate"]();
+  await app.click({route: "settings"});
+  await app.listeners.change({target: {id: "theme-select", value: "dark"}});
+  let pref = JSON.parse(saved.getItem("demo.mp.preferences.v1"));
+  for (const [key, value] of Object.entries({view:"day", compareMode:"free", proximity:"room", minMeeting:90, meetingEnd:1320})) {
+    assert.equal(pref[key], value, key);
+  }
+  app.location.search = "?group=39&compare=232&mode=breaks&near=floor&min=60&until=1200";
+  app.location.hash = "#compare";
+  await app.listeners["window:popstate"]();
+  await app.click({route: "settings"});
+  await app.listeners.change({target: {id: "theme-select", value: "dark"}});
+  pref = JSON.parse(saved.getItem("demo.mp.preferences.v1"));
+  for (const [key, value] of Object.entries({view:"day", compareMode:"breaks", proximity:"floor", minMeeting:60, meetingEnd:1200})) {
+    assert.equal(pref[key], value, key);
+  }
+  app.location.search = "?group=39&week=2026-09-07";
+  app.location.hash = "#schedule";
+  await app.listeners["window:popstate"]();
+  await app.click({route: "settings"});
+  await app.listeners.change({target: {id: "theme-select", value: "dark"}});
+  assert.equal(JSON.parse(saved.getItem("demo.mp.preferences.v1")).view, "week");
 });

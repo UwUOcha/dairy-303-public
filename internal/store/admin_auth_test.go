@@ -32,7 +32,7 @@ func TestAdminLoginUsesVerifiedBotIdentityWithoutPublicAllowlist(t *testing.T) {
 	if e != nil || session.ExtID != "777" || !session.Admin {
 		t.Fatal(session, e)
 	}
-	stats, e := db.Stats(ctx, time.Now())
+	stats, e := db.Stats(ctx, time.Now(), 0)
 	if e != nil || stats.Web.SignedIn != 1 || stats.Web.Sessions != 1 || stats.Web.Allowed != 1 {
 		t.Fatal("administrator missing from website statistics", stats, e)
 	}

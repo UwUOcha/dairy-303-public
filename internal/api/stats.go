@@ -117,10 +117,11 @@ type StatsResponse struct {
 // Отдельная структура, а не пять полей в Server: их всех подключает один
 // вызов и все они не нужны ни одному пользовательскому обработчику.
 type diagnostics struct {
-	mu        sync.RWMutex
-	ring      *logbuf.Ring
-	startedAt time.Time
-	bot       *BotSnapshot
+	mu          sync.RWMutex
+	ring        *logbuf.Ring
+	startedAt   time.Time
+	bot         *BotSnapshot
+	monthsAhead int
 }
 
 // Diagnostics подключает к серверу данные админ-панели: буфер жалоб и момент
@@ -129,18 +130,22 @@ type diagnostics struct {
 // Вызов необязателен. Без него /stats продолжает отдавать статистику базы —
 // просто без журнала и с нулевым аптаймом, — а тестам не приходится собирать
 // половину демона ради одного обработчика.
-func (s *Server) Diagnostics(ring *logbuf.Ring, startedAt time.Time) {
+func (s *Server) Diagnostics(ring *logbuf.Ring, startedAt time.Time, monthsAhead int) {
 	s.diag.mu.Lock()
 	defer s.diag.mu.Unlock()
+	s.diag.monthsAhead = monthsAhead
 	s.diag.ring = ring
 	s.diag.startedAt = startedAt
 }
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	now := time.Now()
+	now := time.Now().In(s.loc)
+	s.diag.mu.RLock()
+	monthsAhead := s.diag.monthsAhead
+	s.diag.mu.RUnlock()
 
-	st, err := s.db.Stats(ctx, now)
+	st, err := s.db.Stats(ctx, now, monthsAhead)
 	if err != nil {
 		s.fail(w, http.StatusInternalServerError, err)
 		return

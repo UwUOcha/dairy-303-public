@@ -81,7 +81,7 @@ func applyGroupReplacements(ctx context.Context, tx *sql.Tx) error {
 			if r.MatchSubgroupsByName && !ready {
 				condition += ` AND subgroup_id=0`
 			}
-			if _, e = tx.ExecContext(ctx, `DELETE FROM outbox WHERE EXISTS(SELECT 1 FROM users u WHERE u.platform=outbox.platform AND u.ext_id=outbox.ext_id AND `+condition+`)`, args...); e != nil {
+			if _, e = tx.ExecContext(ctx, `DELETE FROM outbox WHERE kind='change' AND EXISTS(SELECT 1 FROM users u WHERE u.platform=outbox.platform AND u.ext_id=outbox.ext_id AND `+condition+`)`, args...); e != nil {
 				return e
 			}
 			expr := `0`

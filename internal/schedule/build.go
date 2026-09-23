@@ -82,18 +82,24 @@ func BuildDay(date string, lessons []Lesson, g Grid, subgroupID int64) Day {
 //
 // Окно — это не любой промежуток: между соседними парами всегда есть перемена
 // в 10–20 минут, и называть её окном бессмысленно. Настоящее окно — когда в
-// сетке звонков пропущен хотя бы один слот, поэтому считаем по номерам пар, а
-// не по минутам.
+// сетке звонков пропущен хотя бы один слот. Без нумерации считаем окном
+// перерыв от 60 минут; короткие перемены не отмечаем.
 func markGaps(items []Item) {
 	var prev *Item
 	for i := range items {
 		cur := &items[i]
-		if prev != nil && prev.Number > 0 && cur.Number > prev.Number+1 {
-			cur.GapBefore = cur.MinuteFrom - prev.MinuteTo
+		if cur.MinuteTo <= cur.MinuteFrom {
+			continue
 		}
-		// Пары в одном слоте (разные подгруппы, поток плюс группа) не двигают
-		// точку отсчёта: окно считается от последнего занятого слота.
-		if prev == nil || cur.Number > prev.Number {
+		if prev != nil {
+			gap := cur.MinuteFrom - prev.MinuteTo
+			numbered := prev.Number > 0 && cur.Number > 0
+			if gap > 0 && ((numbered && cur.Number > prev.Number+1) || (!numbered && gap >= 60)) {
+				cur.GapBefore = gap
+			}
+		}
+		// Пересекающиеся занятия отсчитываем от самого позднего окончания.
+		if prev == nil || cur.MinuteTo > prev.MinuteTo {
 			prev = cur
 		}
 	}
@@ -164,7 +170,7 @@ func NearestWorkday(date string, g Grid) string {
 }
 
 // ComputeNow отвечает на вопрос «что сейчас и что дальше» для уже собранного
-// дня. at должен быть в часовом поясе пользователя.
+// дня. at должен быть в часовом поясе расписания.
 func ComputeNow(d Day, at time.Time) Now {
 	n := Now{At: at}
 	minute := at.Hour()*60 + at.Minute()

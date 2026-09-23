@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/UwUOcha/dairy-303-public/internal/importdata"
 	"github.com/UwUOcha/dairy-303-public/internal/store"
@@ -69,7 +70,7 @@ func TestStaffMonthlyCacheSurvivesRestartAndFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	if hits.Load() != 2 {
-		t.Fatalf("failure retried this month: %d", hits.Load())
+		t.Fatalf("Слишком частый повтор после ошибки: %d", hits.Load())
 	}
 	stamp, err := db.Meta(ctx, store.MetaStaffSyncedAt)
 	if err != nil || stamp != old {
@@ -86,5 +87,36 @@ func TestStaffMonthlyCacheSurvivesRestartAndFailure(t *testing.T) {
 	}
 	if _, err := db.Meta(ctx, store.MetaFullSyncAt); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestStaffFailureCanRetryBeforeNextMonth(t *testing.T) {
+	ctx := context.Background()
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(503)
+			return
+		}
+		json.NewEncoder(w).Encode(importdata.StaffDirectory{Staff: []importdata.StaffDetails{{ID: 1, Name: "Иванов И.И.", FullName: "Иванов Иван Иванович"}}})
+	}))
+	defer srv.Close()
+	s, db := testSyncer(t, srv.URL+"/group")
+	s.client = fixtureSource{base: srv.URL, staff: true}
+	if err := s.SyncStaffDirectory(ctx); err == nil {
+		t.Fatal("Ожидалась ошибка")
+	}
+	if err := s.SyncStaffDirectory(ctx); err != nil || hits.Load() != 1 {
+		t.Fatalf("Повтор без задержки: %v", err)
+	}
+	if err := db.SetMeta(ctx, store.MetaStaffAttemptedAt, fmt.Sprint(time.Now().Add(-25*time.Hour).Unix())); err != nil {
+		t.Fatal(err)
+	}
+	restarted := New(s.client, db, Options{}, testLog())
+	if err := restarted.SyncStaffDirectory(ctx); err != nil || hits.Load() != 2 {
+		t.Fatalf("Повтор после перезапуска: %v, запросов %d", err, hits.Load())
+	}
+	if err := restarted.SyncStaffDirectory(ctx); err != nil || hits.Load() != 2 {
+		t.Fatalf("Успешный справочник не закэширован: %v", err)
 	}
 }

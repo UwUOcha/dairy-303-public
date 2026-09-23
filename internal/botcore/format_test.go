@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/UwUOcha/dairy-303-public/internal/api"
+	"github.com/UwUOcha/dairy-303-public/internal/profile"
 	"github.com/UwUOcha/dairy-303-public/internal/schedule"
 	"github.com/UwUOcha/dairy-303-public/internal/store"
 )
@@ -140,7 +141,7 @@ func TestFormatDayStates(t *testing.T) {
 				r.Stale = true
 				r.FetchedAt = time.Date(2025, 9, 17, 3, 15, 0, 0, time.UTC)
 			},
-			want: "Данные от 17.09 03:15",
+			want: "Данные от 17.09 06:15",
 		},
 		{
 			name: "свежие данные без пометки",
@@ -486,5 +487,43 @@ func TestIncompleteWeekDoesNotPromiseEmptyDays(t *testing.T) {
 	out := FormatWeek(r)
 	if strings.Contains(out, "занятий нет") || !strings.Contains(out, "нет полных данных") {
 		t.Fatal(out)
+	}
+}
+
+func TestUnknownSlotNumberIsHidden(t *testing.T) {
+	for _, flags := range []schedule.Flags{0, schedule.FlagEmpty} {
+		it := item(0, 510, 600, "08:30 – 10:00", "Химия")
+		it.Flags = flags
+		r := dayResponse(it)
+		day := FormatDay(r)
+		week := FormatWeek(api.WeekResponse{Context: r.Context, Week: schedule.Week{Days: []schedule.Day{r.Day}}})
+		if strings.Contains(day, "0 пара") || strings.Contains(week, "<blockquote>0 ·") {
+			t.Fatalf("Нулевой номер: %s\n%s", day, week)
+		}
+		now := FormatNow(api.NowResponse{Context: r.Context, Day: r.Day, Now: schedule.Now{At: time.Date(2025, 9, 19, 9, 0, 0, 0, time.UTC), Current: &it, Next: &it}})
+		if strings.Contains(now, "0 пара") {
+			t.Fatal(now)
+		}
+		for _, line := range changeLines(r.Day, 0) {
+			if strings.HasPrefix(line, "0 ·") {
+				t.Fatal(line)
+			}
+		}
+		if !strings.Contains(day, "08:30") {
+			t.Fatal(day)
+		}
+	}
+}
+
+func TestFreshnessUsesProfileTimezone(t *testing.T) {
+	old := profile.Current()
+	t.Cleanup(func() { profile.Set(old) })
+	p := old
+	p.Timezone = "Asia/Kolkata"
+	profile.Set(p)
+	var text strings.Builder
+	writeFreshness(&text, api.Freshness{Stale: true, FetchedAt: time.Date(2026, 9, 15, 22, 0, 0, 0, time.UTC)})
+	if !strings.Contains(text.String(), "16.09 03:30") {
+		t.Fatal(text.String())
 	}
 }

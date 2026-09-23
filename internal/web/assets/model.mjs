@@ -8,8 +8,12 @@ export const esc = (value) =>
         c
       ],
   );
-export const clock = (n) =>
-  `${String(Math.floor(n / 60)).padStart(2, "0")}:${String(n % 60).padStart(2, "0")}`;
+export const clock = (n, format = "24") => {
+  const hour = Math.floor(n / 60), minute = String(n % 60).padStart(2, "0");
+  return format === "12"
+    ? `${hour % 12 || 12}:${minute} ${hour % 24 < 12 ? "AM" : "PM"}`
+    : `${String(hour).padStart(2, "0")}:${minute}`;
+};
 export function today() {
   return new Intl.DateTimeFormat("sv-SE", { timeZone: TZ }).format(new Date());
 }
@@ -174,15 +178,30 @@ export function statistics(week) {
     types: [...types].sort((a, b) => b[1] - a[1]),
   };
 }
-export function ics(week, label, stamp = new Date()) {
+export function ics(week, label, stamp = new Date(), timezone = TZ) {
   const escape = (s) =>
     String(s || "")
       .replace(/\\/g, "\\\\")
       .replace(/\r?\n/g, "\\n")
       .replace(/,/g, "\\,")
       .replace(/;/g, "\\;");
-  const utc = (date, min) =>
-    new Date(`${date}T00:00:00+03:00`).getTime() + min * 60000;
+  // Смещение берём на дату занятия: оно может меняться в течение года.
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+  });
+  const utc = (date, min) => {
+    const wall = new Date(`${date}T00:00:00Z`).getTime() + min * 60000;
+    let instant = wall;
+    for (let i = 0; i < 4; i++) {
+      const p = Object.fromEntries(parts.formatToParts(new Date(instant)).map(p => [p.type, p.value]));
+      const local = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+      const correction = wall - local;
+      if (!correction) return instant;
+      instant += correction;
+    }
+    throw new Error("Время занятия не существует в часовом поясе вуза");
+  };
   const fmt = (n) =>
     new Date(n)
       .toISOString()

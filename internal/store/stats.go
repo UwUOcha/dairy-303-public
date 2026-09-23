@@ -174,13 +174,15 @@ const statsNewDays = 30
 //
 // now передаётся, а не берётся из time.Now, ради тестируемости: «новые за 30
 // дней» и «протухшие месяцы» иначе нельзя проверить, не подкручивая часы.
-func (db *DB) Stats(ctx context.Context, now time.Time) (Stats, error) {
+func (db *DB) Stats(ctx context.Context, now time.Time, monthsAhead int) (Stats, error) {
 	var s Stats
 	for _, step := range []func(context.Context, *Stats, time.Time) error{
 		db.statsUsers,
 		db.statsWeb,
 		db.statsContent,
-		db.statsSync,
+		func(ctx context.Context, s *Stats, now time.Time) error {
+			return db.statsSync(ctx, s, now, monthsAhead)
+		},
 		db.statsOutbox,
 	} {
 		if err := step(ctx, &s, now); err != nil {
@@ -281,11 +283,10 @@ func (db *DB) statsUsers(ctx context.Context, s *Stats, now time.Time) error {
 // два соседних столбика оказываются рядом, хотя между ними неделя тишины.
 func (db *DB) newByDay(ctx context.Context, now time.Time) ([]DayCount, error) {
 	from := now.AddDate(0, 0, -(statsNewDays - 1))
-	midnight := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, time.UTC)
+	midnight := time.Date(from.Year(), from.Month(), from.Day(), 0, 0, 0, 0, now.Location())
 	rows, err := db.r.QueryContext(ctx,
-		`SELECT date(created_at, 'unixepoch'), COUNT(*)
-		 FROM users WHERE created_at >= ?
-		 GROUP BY 1`, midnight.Unix())
+		`SELECT created_at FROM users WHERE created_at >= ? AND created_at < ?`,
+		midnight.Unix(), time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, now.Location()).Unix())
 	if err != nil {
 		return nil, err
 	}
@@ -293,12 +294,11 @@ func (db *DB) newByDay(ctx context.Context, now time.Time) ([]DayCount, error) {
 
 	seen := make(map[string]int, statsNewDays)
 	for rows.Next() {
-		var d string
-		var n int
-		if err := rows.Scan(&d, &n); err != nil {
+		var stamp int64
+		if err := rows.Scan(&stamp); err != nil {
 			return nil, err
 		}
-		seen[d] = n
+		seen[time.Unix(stamp, 0).In(now.Location()).Format("2006-01-02")]++
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -348,7 +348,7 @@ func (db *DB) fileSize() int64 {
 	return total
 }
 
-func (db *DB) statsSync(ctx context.Context, s *Stats, now time.Time) error {
+func (db *DB) statsSync(ctx context.Context, s *Stats, now time.Time, monthsAhead int) error {
 	y := &s.Sync
 	for key, dst := range map[string]*int64{
 		MetaFullSyncAt:     &y.FullSyncAt,
@@ -375,8 +375,9 @@ func (db *DB) statsSync(ctx context.Context, s *Stats, now time.Time) error {
 	}
 
 	// Свежесть считается по тому, что синк действительно обходит: месяцы от
-	// текущего и дальше у действующих групп. Спрятанные дубликаты каталога
-	// (см. shadow.go) тоже не в счёт — за ними никто не ходит.
+	// текущего до конца настроенного горизонта у действующих групп.
+	// Спрятанные дубликаты каталога не в счёт — за ними никто не ходит.
+	end := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, max(0, monthsAhead), 0)
 	stale := now.Add(-24 * time.Hour).Unix()
 	var oldest sql.NullInt64
 	err = db.r.QueryRowContext(ctx,
@@ -384,8 +385,8 @@ func (db *DB) statsSync(ctx context.Context, s *Stats, now time.Time) error {
 		 FROM month_state ms
 		 JOIN groups g ON g.id = ms.group_id
 		 WHERE g.is_active = 1 AND g.shadowed = 0
-		   AND (ms.year > ? OR (ms.year = ? AND ms.month >= ?))`,
-		stale, now.Year(), now.Year(), int(now.Month())).
+		   AND (ms.year * 12 + ms.month) BETWEEN ? AND ?`,
+		stale, now.Year()*12+int(now.Month()), end.Year()*12+int(end.Month())).
 		Scan(&y.Tracked, &y.MonthsStale, &oldest)
 	if err != nil {
 		return err

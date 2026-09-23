@@ -34,8 +34,9 @@ type fakeRasp struct {
 	groups    map[int64]store.Group
 	subgroups map[int64][]store.Subgroup
 	// dayCalls — сколько раз спрашивали расписание дня и с какой датой.
-	dayDates   []string
-	nextStarts []string
+	dayDates     []string
+	nextStarts   []string
+	nextResponse *api.NextLessonResponse
 	// changed — дни, о правке которых заглушка знает, по группам.
 	changed map[int64][]string
 	// feedback — принятые обращения по номеру, next — следующий номер.
@@ -275,6 +276,10 @@ func newFakeRaspWithState(t *testing.T) (*api.Client, *fakeRasp) {
 	})
 	mux.HandleFunc(api.PathNextLesson, func(w http.ResponseWriter, r *http.Request) {
 		f.nextStarts = append(f.nextStarts, r.URL.Query().Get("from"))
+		if f.nextResponse != nil {
+			writeJSON(w, *f.nextResponse)
+			return
+		}
 		writeJSON(w, api.NextLessonResponse{Context: api.Context{Today: "2025-09-19"}, From: "2025-09-20", To: "2025-10-03"})
 	})
 	mux.HandleFunc(api.PathDay, func(w http.ResponseWriter, r *http.Request) {
@@ -1254,8 +1259,8 @@ func TestEveningDigestAsksNextDay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(f.dayDates) == 0 || f.dayDates[len(f.dayDates)-1] != api.DateNext {
-		t.Errorf("вечером спрошен день %v, ожидался %q", f.dayDates, api.DateNext)
+	if len(f.dayDates) != 0 || len(f.nextStarts) != 1 || f.nextStarts[0] != "tomorrow" {
+		t.Fatalf("Запросы дня: %v, поиск: %v", f.dayDates, f.nextStarts)
 	}
 	if !strings.Contains(d.Text, "завтра") {
 		t.Errorf("вечернее сообщение не про завтра: %q", d.Text)
@@ -1681,5 +1686,34 @@ func TestSubgroupNameOfForeignGroup(t *testing.T) {
 	s := buttonLabels(handle(t, b, Update{Platform: "vk", UserID: "557", Callback: "set"}))
 	if !strings.Contains(s, "ГР-12/1") {
 		t.Errorf("чужая подгруппа перебила собственную настройку: %q", s)
+	}
+}
+
+func TestEveningDigestSkipsEmptySaturday(t *testing.T) {
+	client, f := newFakeRaspWithState(t)
+	b := New(client, 0, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	it := item(1, 510, 600, "08:30 – 10:00", "Химия")
+	r := dayResponse(it)
+	r.Day.Date = "2025-09-22"
+	f.nextResponse = &api.NextLessonResponse{Context: r.Context, From: "2025-09-20", To: "2025-10-03", Day: r.Day, Lesson: &it}
+	d, err := b.Digest(context.Background(), store.User{GroupID: 39}, store.NotifyEvening)
+	if err != nil || d.Empty || !strings.Contains(d.Text, "22 сентября") || !strings.Contains(d.Text, "Химия") {
+		t.Fatalf("Вечерняя рассылка: %+v, %v", d, err)
+	}
+	f.nextResponse.Lesson = nil
+	f.nextResponse.Missing = true
+	d, err = b.Digest(context.Background(), store.User{GroupID: 39}, store.NotifyEvening)
+	if err != nil || d.Empty || !strings.Contains(d.Text, "не могу надёжно") {
+		t.Fatalf("Неполные данные: %+v, %v", d, err)
+	}
+}
+
+func TestTimePromptUsesInstallationTimezone(t *testing.T) {
+	b := testBot(t)
+	for _, kind := range []string{askMorning, askEvening} {
+		replies, err := b.askTime(context.Background(), api.UserResponse{User: store.User{Platform: "tg", ExtID: "5"}}, kind)
+		if err != nil || !strings.Contains(firstText(replies), "Часовой пояс: Europe/Moscow") || strings.Contains(firstText(replies), "московское") {
+			t.Fatalf("Подсказка: %+v, %v", replies, err)
+		}
 	}
 }
